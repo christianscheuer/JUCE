@@ -1,3 +1,6 @@
+This branch/repo includes changes to JUCE needed by me.
+
+
 # The JUCE Library
 
 JUCE (Jules' Utility Class Extensions) is an all-encompassing 
