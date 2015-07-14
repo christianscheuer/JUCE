@@ -318,6 +318,8 @@ namespace
 
     static void translateJuceToXMouseWheelModifiers (const MouseEvent& e, const float increment, XEvent& ev) noexcept
     {
+        ignoreUnused (e);
+
         if (increment < 0)
         {
             ev.xbutton.button = Button5;
@@ -1284,7 +1286,12 @@ public:
 
             case audioMasterSizeWindow:
                 if (AudioProcessorEditor* ed = getActiveEditor())
-                    ed->setSize (index, (int) value);
+                {
+                   #if JUCE_LINUX
+                    const MessageManagerLock mmLock;
+                   #endif
+                     ed->setSize (index, (int) value);
+                }
 
                 return 1;
 
@@ -1628,7 +1635,7 @@ public:
             void* data = nullptr;
             const size_t bytes = (size_t) dispatch (effGetChunk, isPreset ? 1 : 0, 0, &data, 0.0f);
 
-            if (data != nullptr && bytes <= maxSizeMB * 1024 * 1024)
+            if (data != nullptr && bytes <= (size_t) maxSizeMB * 1024 * 1024)
             {
                 mb.setSize (bytes);
                 mb.copyFrom (data, 0, bytes);
@@ -1973,9 +1980,13 @@ public:
            #elif JUCE_LINUX
             if (pluginWindow != 0)
             {
-                XResizeWindow (display, pluginWindow, getWidth(), getHeight());
-                XMoveWindow (display, pluginWindow, pos.getX(), pos.getY());
+                XMoveResizeWindow (display, pluginWindow,
+                                   pos.getX(), pos.getY(),
+                                   (unsigned int) getWidth(),
+                                   (unsigned int) getHeight());
+
                 XMapRaised (display, pluginWindow);
+                XFlush (display);
             }
            #endif
 
@@ -2086,6 +2097,16 @@ public:
                 plugin.dispatch (effEditIdle, 0, 0, 0, 0);
                 reentrant = false;
             }
+
+           #if JUCE_LINUX
+            if (pluginWindow == 0)
+            {
+                updatePluginWindowHandle();
+
+                if (pluginWindow != 0)
+                    componentMovedOrResized (true, true);
+            }
+           #endif
         }
     }
 
@@ -2271,11 +2292,7 @@ private:
         }
 
        #elif JUCE_LINUX
-        pluginWindow = getChildWindow ((Window) getWindowHandle());
-
-        if (pluginWindow != 0)
-            pluginProc = (EventProcPtr) getPropertyFromXWindow (pluginWindow,
-                                                                XInternAtom (display, "_XEventProc", False));
+        updatePluginWindowHandle();
 
         int w = 250, h = 150;
 
@@ -2502,6 +2519,15 @@ private:
             ev.xbutton.type = ButtonRelease;
             sendEventToChild (ev);
         }
+    }
+
+    void updatePluginWindowHandle()
+    {
+        pluginWindow = getChildWindow ((Window) getWindowHandle());
+
+        if (pluginWindow != 0)
+            pluginProc = (EventProcPtr) getPropertyFromXWindow (pluginWindow,
+                                                                XInternAtom (display, "_XEventProc", False));
     }
 #endif
 

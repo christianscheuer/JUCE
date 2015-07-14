@@ -68,10 +68,11 @@ public:
     virtual int getVisualStudioVersion() const  { return 0; }
     virtual bool isCodeBlocksWindows() const    { return false; }
     virtual bool isCodeBlocksLinux() const      { return false; }
+    virtual bool isLinuxMakefile() const        { return false; }
 
     virtual bool isAndroid() const              { return false; }
     virtual bool isWindows() const              { return false; }
-    virtual bool isLinuxMakefile() const        { return false; }
+    virtual bool isLinux() const                { return false; }
     virtual bool isOSX() const                  { return false; }
 
     bool mayCompileOnCurrentOS() const
@@ -81,7 +82,7 @@ public:
        #elif JUCE_WINDOWS
         return isWindows() || isAndroid();
        #elif JUCE_LINUX
-        return isLinuxMakefile() || isCodeBlocksLinux() || isAndroid();
+        return isLinux() || isAndroid();
        #else
         #error
        #endif
@@ -121,7 +122,7 @@ public:
     String getLegacyModulePath() const;
 
     // Returns a path to the actual module folder itself
-    RelativePath getModuleFolderRelativeToProject (const String& moduleID, ProjectSaver& projectSaver) const;
+    RelativePath getModuleFolderRelativeToProject (const String& moduleID) const;
     void updateOldModulePaths();
 
     RelativePath rebaseFromProjectFolderToBuildTarget (const RelativePath& path) const;
@@ -173,7 +174,7 @@ public:
     //==============================================================================
     String makefileTargetSuffix;
     bool makefileIsDLL;
-    StringArray linuxLibs;
+    StringArray linuxLibs, makefileExtraLinkerFlags;
 
     //==============================================================================
     String msvcTargetSuffix;

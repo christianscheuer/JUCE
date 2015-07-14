@@ -1270,17 +1270,19 @@ void AudioProcessorGraph::reset()
         nodes.getUnchecked(i)->getProcessor()->reset();
 }
 
-void AudioProcessorGraph::setNonRealtime (bool isNonRealtime) noexcept
+void AudioProcessorGraph::setNonRealtime (bool isProcessingNonRealtime) noexcept
 {
     const ScopedLock sl (getCallbackLock());
 
     for (int i = 0; i < nodes.size(); ++i)
-        nodes.getUnchecked(i)->getProcessor()->setNonRealtime (isNonRealtime);
+        nodes.getUnchecked(i)->getProcessor()->setNonRealtime (isProcessingNonRealtime);
 }
 
 void AudioProcessorGraph::setPlayHead (AudioPlayHead* audioPlayHead)
 {
     const ScopedLock sl (getCallbackLock());
+
+    AudioProcessor::setPlayHead (audioPlayHead);
 
     for (int i = 0; i < nodes.size(); ++i)
         nodes.getUnchecked(i)->getProcessor()->setPlayHead (audioPlayHead);
