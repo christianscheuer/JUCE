@@ -1,8 +1,3 @@
-This branch ‘master’ includes changes to JUCE needed by me internally.
-
-The branch ‘upsync’ should be used as a base for feature/bugfix branches that need to be pulled into the main JUCE project at a later stage.
-
-
 # The JUCE Library
 
 JUCE (Jules' Utility Class Extensions) is an all-encompassing 
