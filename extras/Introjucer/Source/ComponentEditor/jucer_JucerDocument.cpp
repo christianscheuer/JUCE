@@ -697,9 +697,8 @@ public:
         return SourceCodeDocument::createEditor();
     }
 
-    class Type  : public OpenDocumentManager::DocumentType
+    struct Type  : public OpenDocumentManager::DocumentType
     {
-    public:
         Type() {}
 
         bool canOpenFile (const File& f) override                { return JucerDocument::isValidJucerCppFile (f); }
@@ -752,8 +751,8 @@ public:
                         odm.closeDocument (cpp, true);
                         odm.closeDocument (header, true);
 
-                        parent.addFile (headerFile, 0, true);
-                        parent.addFile (cppFile, 0, true);
+                        parent.addFileRetainingSortOrder (headerFile, true);
+                        parent.addFileRetainingSortOrder (cppFile, true);
                     }
                 }
             }

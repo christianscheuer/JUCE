@@ -25,8 +25,8 @@
 namespace
 {
     const char* const osxVersionDefault         = "default";
-    const int oldestSDKVersion = 4;
-    const int currentSDKVersion = 10;
+    const int oldestSDKVersion  = 5;
+    const int currentSDKVersion = 11;
 
     const char* const osxArch_Default           = "default";
     const char* const osxArch_Native            = "Native";
@@ -53,6 +53,8 @@ public:
 
         if (getTargetLocationString().isEmpty())
             getTargetLocationValue() = getDefaultBuildsRootFolder() + (iOS ? "iOS" : "MacOSX");
+
+        initialiseDependencyPathValues();
     }
 
     static XCodeProjectExporter* createForSettings (Project& project, const ValueTree& settings)
@@ -208,14 +210,14 @@ protected:
 
         var getDefaultOptimisationLevel() const override    { return var ((int) (isDebug() ? gccO0 : gccO3)); }
 
-        void createConfigProperties (PropertyListBuilder& props)
+        void createConfigProperties (PropertyListBuilder& props) override
         {
             addGCCOptimisationProperty (props);
 
             if (iOS)
             {
-                const char* iosVersions[]      = { "Use Default",     "3.2", "4.0", "4.1", "4.2", "4.3", "5.0", "5.1", "6.0", "6.1", "7.0", "7.1", 0 };
-                const char* iosVersionValues[] = { osxVersionDefault, "3.2", "4.0", "4.1", "4.2", "4.3", "5.0", "5.1", "6.0", "6.1", "7.0", "7.1", 0 };
+                const char* iosVersions[]      = { "Use Default",     "4.3", "5.0", "5.1", "6.0", "6.1", "7.0", "7.1", "8.0", "8.1", "8.2", "8.3", "8.4", 0 };
+                const char* iosVersionValues[] = { osxVersionDefault, "4.3", "5.0", "5.1", "6.0", "6.1", "7.0", "7.1", "8.0", "8.1", "8.2", "8.3", "8.4", 0 };
 
                 props.add (new ChoicePropertyComponent (getiOSCompatibilityVersionValue(), "iOS Deployment Target",
                                                         StringArray (iosVersions), Array<var> (iosVersionValues)),
@@ -223,22 +225,24 @@ protected:
             }
             else
             {
-                StringArray versionNames;
+                StringArray sdkVersionNames, osxVersionNames;
                 Array<var> versionValues;
 
-                versionNames.add ("Use Default");
+                sdkVersionNames.add ("Use Default");
+                osxVersionNames.add ("Use Default");
                 versionValues.add (osxVersionDefault);
 
                 for (int ver = oldestSDKVersion; ver <= currentSDKVersion; ++ver)
                 {
-                    versionNames.add (getSDKName (ver));
+                    sdkVersionNames.add (getSDKName (ver));
+                    osxVersionNames.add (getOSXVersionName (ver));
                     versionValues.add (getSDKName (ver));
                 }
 
-                props.add (new ChoicePropertyComponent (getMacSDKVersionValue(), "OSX Base SDK Version", versionNames, versionValues),
+                props.add (new ChoicePropertyComponent (getMacSDKVersionValue(), "OSX Base SDK Version", sdkVersionNames, versionValues),
                            "The version of OSX to link against in the XCode build.");
 
-                props.add (new ChoicePropertyComponent (getMacCompatibilityVersionValue(), "OSX Compatibility Version", versionNames, versionValues),
+                props.add (new ChoicePropertyComponent (getMacCompatibilityVersionValue(), "OSX Deployment Target", osxVersionNames, versionValues),
                            "The minimum version of OSX that the target binary will be compatible with.");
 
                 const char* osxArch[] = { "Use Default", "Native architecture of build machine",
@@ -601,7 +605,10 @@ private:
         }
 
         addPlistDictionaryKey (dict, "CFBundleExecutable",          "${EXECUTABLE_NAME}");
-        addPlistDictionaryKey (dict, "CFBundleIconFile",            iconFile.exists() ? iconFile.getFileName() : String::empty);
+
+        if (! iOS) // (NB: on iOS this causes error ITMS-90032 during publishing)
+            addPlistDictionaryKey (dict, "CFBundleIconFile", iconFile.exists() ? iconFile.getFileName() : String());
+
         addPlistDictionaryKey (dict, "CFBundleIdentifier",          project.getBundleIdentifier().toString());
         addPlistDictionaryKey (dict, "CFBundleName",                projectName);
         addPlistDictionaryKey (dict, "CFBundlePackageType",         xcodePackageType);
@@ -613,7 +620,7 @@ private:
 
         StringArray documentExtensions;
         documentExtensions.addTokens (replacePreprocessorDefs (getAllPreprocessorDefs(), settings ["documentExtensions"]),
-                                      ",", String::empty);
+                                      ",", StringRef());
         documentExtensions.trim();
         documentExtensions.removeEmptyStrings (true);
 
@@ -636,6 +643,7 @@ private:
 
                     addPlistDictionaryKey (dict2, "CFBundleTypeName", ex);
                     addPlistDictionaryKey (dict2, "CFBundleTypeRole", "Editor");
+                    addPlistDictionaryKey (dict2, "CFBundleTypeIconFile", "Icon");
                     addPlistDictionaryKey (dict2, "NSPersistentStoreTypeKey", "XML");
                 }
 
@@ -651,6 +659,9 @@ private:
 
         if (iOS)
         {
+            // Forcing full screen disables the split screen feature and prevents error ITMS-90475
+            addPlistDictionaryKeyBool (dict, "UIRequiresFullScreen", true);
+
             static const char* kDefaultiOSOrientationStrings[] =
             {
                 "UIInterfaceOrientationPortrait",
@@ -1167,7 +1178,7 @@ private:
                             projectItem.shouldInhibitWarnings());
         }
 
-        return String::empty;
+        return String();
     }
 
     void addFramework (const String& frameworkName) const
@@ -1207,17 +1218,19 @@ private:
     void addMainBuildProduct() const
     {
         jassert (xcodeFileType.isNotEmpty());
-        jassert (xcodeBundleExtension.isEmpty() || xcodeBundleExtension.startsWithChar('.'));
-        ProjectExporter::BuildConfiguration::Ptr config = getConfiguration(0);
-        jassert (config != nullptr);
-        String productName (replacePreprocessorTokens (*config, config->getTargetBinaryNameString()));
+        jassert (xcodeBundleExtension.isEmpty() || xcodeBundleExtension.startsWithChar ('.'));
 
-        if (xcodeFileType == "archive.ar")
-            productName = getLibbedFilename (productName);
-        else
-            productName += xcodeBundleExtension;
+        if (ProjectExporter::BuildConfiguration::Ptr config = getConfiguration(0))
+        {
+            String productName (replacePreprocessorTokens (*config, config->getTargetBinaryNameString()));
 
-        addBuildProduct (xcodeFileType, productName);
+            if (xcodeFileType == "archive.ar")
+                productName = getLibbedFilename (productName);
+            else
+                productName += xcodeBundleExtension;
+
+            addBuildProduct (xcodeFileType, productName);
+        }
     }
 
     void addBuildProduct (const String& fileType, const String& binaryName) const
@@ -1336,20 +1349,7 @@ private:
         }
     }
 
-    String getiOSAssetContents (var images) const
-    {
-        DynamicObject::Ptr v (new DynamicObject());
-
-        var info (new DynamicObject());
-        info.getDynamicObject()->setProperty ("version", 1);
-        info.getDynamicObject()->setProperty ("author", "xcode");
-
-        v->setProperty ("images", images);
-        v->setProperty ("info", info);
-
-        return JSON::toString (var (v));
-    }
-
+    //==============================================================================
     struct AppIconType
     {
         const char* idiom;
@@ -1365,7 +1365,9 @@ private:
         {
             { "iphone", "29x29",   "Icon-Small.png",             "1x", 29  },
             { "iphone", "29x29",   "Icon-Small@2x.png",          "2x", 58  },
+            { "iphone", "29x29",   "Icon-Small@3x.png",          "3x", 87  },
             { "iphone", "40x40",   "Icon-Spotlight-40@2x.png",   "2x", 80  },
+            { "iphone", "40x40",   "Icon-Spotlight-40@3x.png",   "3x", 120 },
             { "iphone", "57x57",   "Icon.png",                   "1x", 57  },
             { "iphone", "57x57",   "Icon@2x.png",                "2x", 114 },
             { "iphone", "60x60",   "Icon-60@2x.png",             "2x", 120 },
@@ -1385,10 +1387,9 @@ private:
         return Array<AppIconType> (types, numElementsInArray (types));
     }
 
-    String getiOSAppIconContents() const
+    static String getiOSAppIconContents()
     {
-        const Array<AppIconType> types = getiOSAppIconTypes();
-
+        const Array<AppIconType> types (getiOSAppIconTypes());
         var images;
 
         for (int i = 0; i < types.size(); ++i)
@@ -1406,46 +1407,105 @@ private:
         return getiOSAssetContents (images);
     }
 
-    String getiOSLaunchImageContents() const
+    //==============================================================================
+    struct ImageType
     {
-        struct ImageType
+        const char* orientation;
+        const char* idiom;
+        const char* subtype;
+        const char* extent;
+        const char* scale;
+        const char* filename;
+        int width;
+        int height;
+    };
+
+    static Array<ImageType> getiOSLaunchImageTypes()
+    {
+        ImageType types[] =
         {
-            const char* orientation;
-            const char* idiom;
-            const char* extent;
-            const char* scale;
+            { "portrait", "iphone", nullptr,      "full-screen", "2x", "LaunchImage-iphone-2x.png",         640, 960 },
+            { "portrait", "iphone", "retina4",    "full-screen", "2x", "LaunchImage-iphone-retina4.png",    640, 1136 },
+            { "portrait", "ipad",   nullptr,      "full-screen", "1x", "LaunchImage-ipad-portrait-1x.png",  768, 1024 },
+            { "landscape","ipad",   nullptr,      "full-screen", "1x", "LaunchImage-ipad-landscape-1x.png", 1024, 768 },
+            { "portrait", "ipad",   nullptr,      "full-screen", "2x", "LaunchImage-ipad-portrait-2x.png",  1536, 2048 },
+            { "landscape","ipad",   nullptr,      "full-screen", "2x", "LaunchImage-ipad-landscape-2x.png", 2048, 1536 }
         };
 
-        const ImageType types[] = { { "portrait",  "iphone", "full-screen", "2x" },
-                                    { "landscape", "iphone", "full-screen", "2x" },
-                                    { "portrait",  "ipad",   "full-screen", "1x" },
-                                    { "landscape", "ipad",   "full-screen", "1x" },
-                                    { "portrait",  "ipad",   "full-screen", "2x" },
-                                    { "landscape", "ipad",   "full-screen", "2x" } };
+        return Array<ImageType> (types, numElementsInArray (types));
+    }
+
+    static String getiOSLaunchImageContents()
+    {
+        const Array<ImageType> types (getiOSLaunchImageTypes());
         var images;
 
-        for (size_t i = 0; i < sizeof (types) / sizeof (types[0]); ++i)
+        for (int i = 0; i < types.size(); ++i)
         {
+            const ImageType& type = types.getReference(i);
+
             DynamicObject::Ptr d = new DynamicObject();
-            d->setProperty ("orientation", types[i].orientation);
-            d->setProperty ("idiom", types[i].idiom);
-            d->setProperty ("extent",  types[i].extent);
+            d->setProperty ("orientation", type.orientation);
+            d->setProperty ("idiom", type.idiom);
+            d->setProperty ("extent",  type.extent);
             d->setProperty ("minimum-system-version", "7.0");
-            d->setProperty ("scale", types[i].scale);
+            d->setProperty ("scale", type.scale);
+            d->setProperty ("filename", type.filename);
+
+            if (type.subtype != nullptr)
+                d->setProperty ("subtype", type.subtype);
+
             images.append (var (d));
         }
 
         return getiOSAssetContents (images);
     }
 
+    static void createiOSLaunchImageFiles (const File& launchImageSet)
+    {
+        const Array<ImageType> types (getiOSLaunchImageTypes());
+
+        for (int i = 0; i < types.size(); ++i)
+        {
+            const ImageType& type = types.getReference(i);
+
+            Image image (Image::ARGB, type.width, type.height, true); // (empty black image)
+            image.clear (image.getBounds(), Colours::black);
+
+            MemoryOutputStream pngData;
+            PNGImageFormat pngFormat;
+            pngFormat.writeImageToStream (image, pngData);
+            overwriteFileIfDifferentOrThrow (launchImageSet.getChildFile (type.filename), pngData);
+        }
+    }
+
+    //==============================================================================
+    static String getiOSAssetContents (var images)
+    {
+        DynamicObject::Ptr v (new DynamicObject());
+
+        var info (new DynamicObject());
+        info.getDynamicObject()->setProperty ("version", 1);
+        info.getDynamicObject()->setProperty ("author", "xcode");
+
+        v->setProperty ("images", images);
+        v->setProperty ("info", info);
+
+        return JSON::toString (var (v));
+    }
+
     void createiOSAssetsFolder() const
     {
-        File assets (getTargetFolder().getChildFile (project.getProjectFilenameRoot()).getChildFile ("Images.xcassets"));
+        const File assets (getTargetFolder().getChildFile (project.getProjectFilenameRoot())
+                                            .getChildFile ("Images.xcassets"));
+        const File iconSet (assets.getChildFile ("AppIcon.appiconset"));
+        const File launchImage (assets.getChildFile ("LaunchImage.launchimage"));
 
-        overwriteFileIfDifferentOrThrow (assets.getChildFile ("AppIcon.appiconset").getChildFile ("Contents.json"), getiOSAppIconContents());
-        createiOSIconFiles (assets.getChildFile ("AppIcon.appiconset"));
+        overwriteFileIfDifferentOrThrow (iconSet.getChildFile ("Contents.json"), getiOSAppIconContents());
+        createiOSIconFiles (iconSet);
 
-        overwriteFileIfDifferentOrThrow (assets.getChildFile ("LaunchImage.launchimage").getChildFile ("Contents.json"), getiOSLaunchImageContents());
+        overwriteFileIfDifferentOrThrow (launchImage.getChildFile ("Contents.json"), getiOSLaunchImageContents());
+        createiOSLaunchImageFiles (launchImage);
 
         RelativePath assetsPath (assets, getTargetFolder(), RelativePath::buildTargetFolder);
         addFileReference (assetsPath.toUnixStyle());
@@ -1489,14 +1549,27 @@ private:
     String createFileRefID (const String& path) const           { return createID ("__fileref_" + path); }
     String getIDForGroup (const Project::Item& item) const      { return createID (item.getID()); }
 
-    bool shouldFileBeCompiledByDefault (const RelativePath& file) const
+    bool shouldFileBeCompiledByDefault (const RelativePath& file) const override
     {
         return file.hasFileExtension (sourceFileExtensions);
     }
 
-    static String getSDKName (int version)
+    static String getOSXVersionName (int version)
     {
         jassert (version >= 4);
-        return "10." + String (version) + " SDK";
+        return "10." + String (version);
+    }
+
+    static String getSDKName (int version)
+    {
+        return getOSXVersionName (version) + " SDK";
+    }
+
+    void initialiseDependencyPathValues()
+    {
+        vst2Path.referTo (Value (new DependencyPathValueSource (getSetting (Ids::vstFolder),  Ids::vst2Path, TargetOS::osx)));
+        vst3Path.referTo (Value (new DependencyPathValueSource (getSetting (Ids::vst3Folder), Ids::vst3Path, TargetOS::osx)));
+        aaxPath. referTo (Value (new DependencyPathValueSource (getSetting (Ids::aaxFolder),  Ids::aaxPath,  TargetOS::osx)));
+        rtasPath.referTo (Value (new DependencyPathValueSource (getSetting (Ids::rtasFolder), Ids::rtasPath, TargetOS::osx)));
     }
 };

@@ -314,12 +314,15 @@ void LibraryModule::createLocalHeaderWrapper (ProjectSaver& projectSaver, const 
         const RelativePath fileFromHere (headerFromProject.rebased (project.getProjectFolder(),
                                                                     localHeader.getParentDirectory(), RelativePath::unknown));
 
-        paths.add (fileFromHere.toUnixStyle().quoted());
+        if (exporter->isWindows() && fileFromHere.isAbsolute())
+            paths.add (fileFromHere.toWindowsStyle().quoted());
+        else
+            paths.add (fileFromHere.toUnixStyle().quoted());
+
         guards.add ("defined (" + exporter->getExporterIdentifierMacro() + ")");
     }
 
     writeGuardedInclude (out, paths, guards);
-    out << newLine;
 
     projectSaver.replaceFileIfDifferent (localHeader, out);
 }
@@ -601,9 +604,9 @@ void LibraryModule::addBrowseableCode (ProjectExporter& exporter, const Array<Fi
                                pathWithinModule);
     }
 
-    sourceGroup.addFile (localModuleFolder.getChildFile (FileHelpers::getRelativePathFrom (moduleInfo.manifestFile,
-                                                                                           moduleInfo.getFolder())), -1, false);
-    sourceGroup.addFile (getModuleHeaderFile (localModuleFolder), -1, false);
+    sourceGroup.addFileAtIndex (localModuleFolder.getChildFile (FileHelpers::getRelativePathFrom (moduleInfo.manifestFile,
+                                                                                                  moduleInfo.getFolder())), -1, false);
+    sourceGroup.addFileAtIndex (getModuleHeaderFile (localModuleFolder), -1, false);
 
     exporter.getModulesGroup().state.addChild (sourceGroup.state.createCopy(), -1, nullptr);
 }
@@ -728,7 +731,7 @@ void EnabledModuleList::addModule (const File& moduleManifestFile, bool copyLoca
 
         if (! isModuleEnabled (moduleID))
         {
-            ValueTree module (Ids::MODULES);
+            ValueTree module (Ids::MODULE);
             module.setProperty (Ids::ID, moduleID, nullptr);
 
             state.addChild (module, -1, getUndoManager());
@@ -759,12 +762,7 @@ void EnabledModuleList::removeModule (String moduleID) // must be pass-by-value,
 void EnabledModuleList::createRequiredModules (OwnedArray<LibraryModule>& modules)
 {
     for (int i = 0; i < getNumModules(); ++i)
-    {
-        ModuleDescription info (getModuleInfo (getModuleID (i)));
-
-        if (info.isValid())
-            modules.add (new LibraryModule (info));
-    }
+        modules.add (new LibraryModule (getModuleInfo (getModuleID (i))));
 }
 
 StringArray EnabledModuleList::getAllModules() const

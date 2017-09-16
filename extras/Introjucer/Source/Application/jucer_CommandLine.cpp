@@ -231,7 +231,7 @@ namespace
     }
 
     //==============================================================================
-    int showStatus (const StringArray& args)
+    static int showStatus (const StringArray& args)
     {
         hideDockIcon();
 
@@ -370,6 +370,137 @@ namespace
     }
 
     //==============================================================================
+    struct CleanupOptions
+    {
+        bool removeTabs;
+        bool fixDividerComments;
+    };
+
+    static bool cleanWhitespace (const File& file, CleanupOptions options)
+    {
+        const String content (file.loadFileAsString());
+
+        if (content.contains ("%%") && content.contains ("//["))
+            return true; // ignore introjucer GUI template files
+
+        StringArray lines;
+        lines.addLines (content);
+        bool anyTabsRemoved = false;
+
+        for (int i = 0; i < lines.size(); ++i)
+        {
+            String& line = lines.getReference(i);
+
+            if (options.removeTabs && line.containsChar ('\t'))
+            {
+                anyTabsRemoved = true;
+
+                for (;;)
+                {
+                    const int tabPos = line.indexOfChar ('\t');
+                    if (tabPos < 0)
+                        break;
+                    
+                    const int spacesPerTab = 4;
+                    const int spacesNeeded = spacesPerTab - (tabPos % spacesPerTab);
+                    line = line.replaceSection (tabPos, 1, String::repeatedString (" ", spacesNeeded));
+                }
+            }
+
+            if (options.fixDividerComments)
+            {
+                String afterIndent (line.trim());
+
+                if (afterIndent.startsWith ("//") && afterIndent.length() > 20)
+                {
+                    afterIndent = afterIndent.substring (2);
+
+                    if (afterIndent.containsOnly ("=")
+                          || afterIndent.containsOnly ("/")
+                          || afterIndent.containsOnly ("-"))
+                    {
+                        line = line.substring (0, line.indexOfChar ('/'))
+                                  + "//" + String::repeatedString ("=", 78);
+                    }
+                }
+            }
+
+            line = line.trimEnd();
+        }
+
+        if (options.removeTabs && ! anyTabsRemoved)
+            return true;
+
+        while (lines.size() > 10 && lines [lines.size() - 1].isEmpty())
+            lines.remove (lines.size() - 1);
+
+        const char* lineEnding = "\r\n";
+        const String newText (lines.joinIntoString (lineEnding) + lineEnding);
+
+        if (newText == content || newText == content + lineEnding)
+            return true;
+
+        std::cout << (options.removeTabs ? "Removing tabs in: "
+                                         : "Cleaning file: ") << file.getFullPathName() << std::endl;
+
+        TemporaryFile temp (file);
+
+        if (! temp.getFile().replaceWithText (newText, false, false))
+        {
+            std::cout << "!!! ERROR Couldn't write to temp file!" << std::endl << std::endl;
+            return false;
+        }
+        
+        if (! temp.overwriteTargetFileWithTemporary())
+        {
+            std::cout << "!!! ERROR Couldn't write to file!" << std::endl << std::endl;
+            return false;
+        }
+
+        return true;
+    }
+
+    static int scanFilesForCleanup (const StringArray& args, CleanupOptions options)
+    {
+        if (! checkArgumentCount (args, 2))
+            return 1;
+
+        const File targetFolder (getFile (args[1]));
+
+        if (! targetFolder.exists())
+        {
+            std::cout << "Could not find folder: " << args[1] << std::endl;
+            return 1;
+        }
+
+        if (targetFolder.isDirectory())
+        {
+            for (DirectoryIterator di (targetFolder, true, "*.cpp;*.h;*.hpp;*.c;*.cc;*.mm;*.m", File::findFiles); di.next();)
+                if (! cleanWhitespace (di.getFile(), options))
+                    return 1;
+        }
+        else
+        {
+            if (! cleanWhitespace (targetFolder, options))
+                return 1;
+        }
+
+        return 0;
+    }
+
+    static int cleanWhitespace (const StringArray& args, bool replaceTabs)
+    {
+        CleanupOptions options = { replaceTabs, false };
+        return scanFilesForCleanup (args, options);
+    }
+
+    static int tidyDividerComments (const StringArray& args)
+    {
+        CleanupOptions options = { false, true };
+        return scanFilesForCleanup (args, options);
+    }
+
+    //==============================================================================
     static int showHelp()
     {
         hideDockIcon();
@@ -401,6 +532,15 @@ namespace
                   << std::endl
                   << " introjucer --buildallmodules target_folder module_folder" << std::endl
                   << "    Zips all modules in a given folder and creates an index for them." << std::endl
+                  << std::endl
+                  << " introjucer --trim-whitespace target_folder" << std::endl
+                  << "    Scans the given folder for C/C++ source files, and trims any trailing whitespace from their lines, as well as normalising their line-endings to CR-LF." << std::endl
+                  << std::endl
+                  << " introjucer --remove-tabs target_folder" << std::endl
+                  << "    Scans the given folder for C/C++ source files, and replaces any tab characters with 4 spaces." << std::endl
+                  << std::endl
+                  << " introjucer --tidy-divider-comments target_folder" << std::endl
+                  << "    Scans the given folder for C/C++ source files, and normalises any juce-style comment division lines (i.e. any lines that look like //===== or //------- or /////////// will be replaced)." << std::endl
                   << std::endl;
 
         return 0;
@@ -416,16 +556,19 @@ int performCommandLine (const String& commandLine)
 
     String command (args[0]);
 
-    if (matchArgument (command, "help"))                return showHelp();
-    if (matchArgument (command, "h"))                   return showHelp();
-    if (matchArgument (command, "resave"))              return resaveProject (args, false);
-    if (matchArgument (command, "resave-resources"))    return resaveProject (args, true);
-    if (matchArgument (command, "set-version"))         return setVersion (args);
-    if (matchArgument (command, "bump-version"))        return bumpVersion (args);
-    if (matchArgument (command, "git-tag-version"))     return gitTag (args);
-    if (matchArgument (command, "buildmodule"))         return buildModules (args, false);
-    if (matchArgument (command, "buildallmodules"))     return buildModules (args, true);
-    if (matchArgument (command, "status"))              return showStatus (args);
+    if (matchArgument (command, "help"))                    return showHelp();
+    if (matchArgument (command, "h"))                       return showHelp();
+    if (matchArgument (command, "resave"))                  return resaveProject (args, false);
+    if (matchArgument (command, "resave-resources"))        return resaveProject (args, true);
+    if (matchArgument (command, "set-version"))             return setVersion (args);
+    if (matchArgument (command, "bump-version"))            return bumpVersion (args);
+    if (matchArgument (command, "git-tag-version"))         return gitTag (args);
+    if (matchArgument (command, "buildmodule"))             return buildModules (args, false);
+    if (matchArgument (command, "buildallmodules"))         return buildModules (args, true);
+    if (matchArgument (command, "status"))                  return showStatus (args);
+    if (matchArgument (command, "trim-whitespace"))         return cleanWhitespace (args, false);
+    if (matchArgument (command, "remove-tabs"))             return cleanWhitespace (args, true);
+    if (matchArgument (command, "tidy-divider-comments"))   return tidyDividerComments (args);
 
     return commandLineNotPerformed;
 }

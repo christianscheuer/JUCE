@@ -1865,12 +1865,6 @@ public:
             XSendEvent (display, RootWindow (display, DefaultScreen (display)),
                         False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
 
-            XWindowAttributes attr;
-            XGetWindowAttributes (display, windowH, &attr);
-
-            if (component.isAlwaysOnTop())
-                XRaiseWindow (display, windowH);
-
             XSync (display, False);
         }
 
@@ -1881,6 +1875,9 @@ public:
     {
         if (LinuxComponentPeer* const otherPeer = dynamic_cast<LinuxComponentPeer*> (other))
         {
+            if (otherPeer->styleFlags & windowIsTemporary)
+                return;
+
             setMinimised (false);
 
             Window newStack[] = { otherPeer->windowH, windowH };
@@ -2958,7 +2955,7 @@ private:
         swa.border_pixel = 0;
         swa.background_pixmap = None;
         swa.colormap = colormap;
-        swa.override_redirect = (component.isAlwaysOnTop() && (styleFlags & windowIsTemporary) != 0) ? True : False;
+        swa.override_redirect = ((styleFlags & windowIsTemporary) != 0) ? True : False;
         swa.event_mask = getAllEventsMask();
 
         windowH = XCreateWindow (display, parentToAddTo != 0 ? parentToAddTo : root,
@@ -2967,9 +2964,13 @@ private:
                                  CWBorderPixel | CWColormap | CWBackPixmap | CWEventMask | CWOverrideRedirect,
                                  &swa);
 
+        unsigned int buttonMask = EnterWindowMask | LeaveWindowMask | PointerMotionMask;
+
+        if ((styleFlags & windowIgnoresMouseClicks) == 0)
+            buttonMask |= ButtonPressMask | ButtonReleaseMask;
+
         XGrabButton (display, AnyButton, AnyModifier, windowH, False,
-                     ButtonPressMask | ButtonReleaseMask | EnterWindowMask | LeaveWindowMask | PointerMotionMask,
-                     GrabModeAsync, GrabModeAsync, None, None);
+                     buttonMask, GrabModeAsync, GrabModeAsync, None, None);
 
         // Set the window context to identify the window handle object
         if (XSaveContext (display, (XID) windowH, windowHandleXContext, (XPointer) this))
@@ -3039,11 +3040,12 @@ private:
         {}
     }
 
-    static int getAllEventsMask() noexcept
+    int getAllEventsMask() const noexcept
     {
-        return NoEventMask | KeyPressMask | KeyReleaseMask | ButtonPressMask | ButtonReleaseMask
+        return NoEventMask | KeyPressMask | KeyReleaseMask
                  | EnterWindowMask | LeaveWindowMask | PointerMotionMask | KeymapStateMask
-                 | ExposureMask | StructureNotifyMask | FocusChangeMask;
+                 | ExposureMask | StructureNotifyMask | FocusChangeMask
+                 | ((styleFlags & windowIgnoresMouseClicks) != 0 ? (ButtonPressMask | ButtonReleaseMask) : 0);
     }
 
     template <typename EventType>

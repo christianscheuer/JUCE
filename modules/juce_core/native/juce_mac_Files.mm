@@ -106,8 +106,7 @@ namespace FileHelpers
         return nsStringToJuce ([NSSearchPathForDirectoriesInDomains (type, NSUserDomainMask, YES)
                                 objectAtIndex: 0]);
     }
-   #endif
-
+   #else
     static bool launchExecutable (const String& pathAndArguments)
     {
         const char* const argv[4] = { "/bin/sh", "-c", pathAndArguments.toUTF8(), 0 };
@@ -128,6 +127,7 @@ namespace FileHelpers
 
         return true;
     }
+   #endif
 }
 
 bool File::isOnCDRomDrive() const
@@ -309,14 +309,11 @@ bool File::moveToTrash() const
    #else
     JUCE_AUTORELEASEPOOL
     {
-        NSString* p = juceStringToNS (getFullPathName());
+        NSURL* url = [NSURL fileURLWithPath: juceStringToNS (getFullPathName())];
 
-        return [[NSWorkspace sharedWorkspace]
-                    performFileOperation: NSWorkspaceRecycleOperation
-                                  source: [p stringByDeletingLastPathComponent]
-                             destination: nsEmptyString()
-                                   files: [NSArray arrayWithObject: [p lastPathComponent]]
-                                     tag: nil ];
+        [[NSWorkspace sharedWorkspace] recycleURLs: [NSArray arrayWithObject: url]
+                                 completionHandler: nil];
+        return true;
     }
    #endif
 }
