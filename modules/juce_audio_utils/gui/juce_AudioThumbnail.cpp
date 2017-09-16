@@ -637,6 +637,19 @@ void AudioThumbnail::saveTo (OutputStream& output) const
             channels.getUnchecked(chan)->getData(i)->write (output);
 }
 
+void AudioThumbnail::saveDataTo(int64 sampleStart, int64 sampleEnd, OutputStream& output) const
+{
+    const ScopedLock sl (lock);
+    
+    const int numThumbnailSamples = channels.size() == 0 ? 0 : channels.getUnchecked(0)->getSize();
+    
+    int lastSample = jmin((int)sampleEnd, numThumbnailSamples);
+    
+    for (int i = sampleStart; i < lastSample; ++i)
+        for (int chan = 0; chan < numChannels; ++chan)
+            channels.getUnchecked(chan)->getData(i)->write (output);
+}
+
 //==============================================================================
 bool AudioThumbnail::setDataSource (LevelDataSource* newSource)
 {

@@ -125,6 +125,8 @@ public:
     */
     void saveTo (OutputStream& output) const;
 
+    void saveDataTo(int64 sampleStart, int64 sampleEnd, OutputStream& output) const;
+
     //==============================================================================
     /** Returns the number of channels in the file. */
     int getNumChannels() const noexcept;
