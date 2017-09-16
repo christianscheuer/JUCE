@@ -110,13 +110,13 @@ public:
         startTimer (60);
     }
 
-    void paint (Graphics& g)
+    void paint (Graphics& g) override
     {
         g.setColour (colour);
         g.fillEllipse (ballBounds - getPosition().toFloat());
     }
 
-    void timerCallback()
+    void timerCallback() override
     {
         ballBounds += direction;
 
@@ -150,18 +150,18 @@ public:
         }
     }
 
-    void mouseDown (const MouseEvent& e)
+    void mouseDown (const MouseEvent& e) override
     {
         dragger.startDraggingComponent (this, e);
     }
 
-    void mouseDrag (const MouseEvent& e)
+    void mouseDrag (const MouseEvent& e) override
     {
         // as there's no titlebar we have to manage the dragging ourselves
         dragger.dragComponent (this, e, 0);
     }
 
-    void paint (Graphics& g)
+    void paint (Graphics& g) override
     {
         if (isOpaque())
             g.fillAll (Colours::white);
@@ -212,6 +212,15 @@ public:
 
     ~WindowsDemo()
     {
+        if (dialogWindow != nullptr)
+        {
+            dialogWindow->exitModalState (0);
+
+            // we are shutting down: can't wait for the message manager
+            // to eventually delete this
+            delete dialogWindow;
+        }
+
         closeAllWindows();
 
         closeWindowsButton.removeListener (this);
@@ -239,6 +248,7 @@ private:
     // null when the component that it points to is deleted.
     Array< Component::SafePointer<Component> > windows;
     TextButton showWindowsButton, closeWindowsButton;
+    SafePointer<DialogWindow> dialogWindow;
 
     void showAllWindows()
     {
@@ -282,8 +292,10 @@ private:
         options.useNativeTitleBar             = false;
         options.resizable                     = true;
 
-        DialogWindow* dw = options.launchAsync();
-        dw->centreWithSize (300, 200);
+        dialogWindow = options.launchAsync();
+
+        if (dialogWindow != nullptr)
+            dialogWindow->centreWithSize (300, 200);
     }
 
     void showDocumentWindow (bool native)

@@ -79,14 +79,6 @@
  //#define JUCE_USE_ANDROID_OPENSLES
 #endif
 
-#ifndef    JUCE_USE_CDREADER
- //#define JUCE_USE_CDREADER
-#endif
-
-#ifndef    JUCE_USE_CDBURNER
- //#define JUCE_USE_CDBURNER
-#endif
-
 //==============================================================================
 // juce_audio_formats flags:
 
@@ -108,6 +100,13 @@
 
 #ifndef    JUCE_USE_WINDOWS_MEDIA_FORMAT
  //#define JUCE_USE_WINDOWS_MEDIA_FORMAT
+#endif
+
+//==============================================================================
+// juce_audio_plugin_client flags:
+
+#ifndef    JUCE_FORCE_USE_LEGACY_PARAM_IDS
+ //#define JUCE_FORCE_USE_LEGACY_PARAM_IDS
 #endif
 
 //==============================================================================
@@ -150,6 +149,14 @@
 
 #ifndef    JUCE_USE_CURL
  //#define JUCE_USE_CURL
+#endif
+
+#ifndef    JUCE_CATCH_UNHANDLED_EXCEPTIONS
+ //#define JUCE_CATCH_UNHANDLED_EXCEPTIONS
+#endif
+
+#ifndef    JUCE_ALLOW_STATIC_NULL_VARIABLES
+ //#define JUCE_ALLOW_STATIC_NULL_VARIABLES
 #endif
 
 //==============================================================================
@@ -232,7 +239,7 @@
  #define JucePlugin_Build_RTAS             0
 #endif
 #ifndef  JucePlugin_Build_AAX
- #define JucePlugin_Build_AAX              1
+ #define JucePlugin_Build_AAX              0
 #endif
 #ifndef  JucePlugin_Build_STANDALONE
  #define JucePlugin_Build_STANDALONE       0
@@ -253,10 +260,10 @@
  #define JucePlugin_ManufacturerEmail      ""
 #endif
 #ifndef  JucePlugin_ManufacturerCode
- #define JucePlugin_ManufacturerCode       'ROLI'
+ #define JucePlugin_ManufacturerCode       0x524f4c49 // 'ROLI'
 #endif
 #ifndef  JucePlugin_PluginCode
- #define JucePlugin_PluginCode             'Gain'
+ #define JucePlugin_PluginCode             0x4761696e // 'Gain'
 #endif
 #ifndef  JucePlugin_IsSynth
  #define JucePlugin_IsSynth                0
