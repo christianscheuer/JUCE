@@ -20,6 +20,8 @@
   ==============================================================================
 */
 
+namespace juce
+{
 
 /** This topology source holds and applies a set of rules for transforming
     one device topology into another one that may involve virtual and/or
@@ -27,6 +29,8 @@
 
     Given an input PhysicalTopologySource and a set of Rule objects, this class
      will apply the rules and present the resulting topology to clients.
+
+    @tags{Blocks}
 */
 class RuleBasedTopologySource  : public TopologySource
 {
@@ -72,5 +76,7 @@ public:
 private:
     //==========================================================================
     struct Internal;
-    juce::ScopedPointer<Internal> internal;
+    std::unique_ptr<Internal> internal;
 };
+
+} // namespace juce

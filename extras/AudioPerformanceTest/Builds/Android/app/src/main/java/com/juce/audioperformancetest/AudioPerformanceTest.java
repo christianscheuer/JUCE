@@ -30,10 +30,13 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.hardware.camera2.*;
+import android.net.http.SslError;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Looper;
 import android.os.Handler;
+import android.os.Message;
 import android.os.ParcelUuid;
 import android.os.Environment;
 import android.view.*;
@@ -47,6 +50,13 @@ import android.text.InputType;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Pair;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import java.lang.Runnable;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.*;
@@ -55,8 +65,6 @@ import java.io.*;
 import java.net.URL;
 import java.net.HttpURLConnection;
 import android.media.AudioManager;
-import android.media.MediaScannerConnection;
-import android.media.MediaScannerConnection.MediaScannerConnectionClient;
 import android.Manifest;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
@@ -112,6 +120,7 @@ public class AudioPerformanceTest   extends Activity
     private static final int JUCE_PERMISSIONS_BLUETOOTH_MIDI = 2;
     private static final int JUCE_PERMISSIONS_READ_EXTERNAL_STORAGE = 3;
     private static final int JUCE_PERMISSIONS_WRITE_EXTERNAL_STORAGE = 4;
+    private static final int JUCE_PERMISSIONS_CAMERA = 5;
 
     private static String getAndroidPermissionName (int permissionID)
     {
@@ -122,6 +131,7 @@ public class AudioPerformanceTest   extends Activity
                                                           // use string value as this is not defined in SDKs < 16
             case JUCE_PERMISSIONS_READ_EXTERNAL_STORAGE:  return "android.permission.READ_EXTERNAL_STORAGE";
             case JUCE_PERMISSIONS_WRITE_EXTERNAL_STORAGE: return Manifest.permission.WRITE_EXTERNAL_STORAGE;
+            case JUCE_PERMISSIONS_CAMERA:                 return Manifest.permission.CAMERA;
         }
 
         // unknown permission ID!
@@ -1198,6 +1208,7 @@ public class AudioPerformanceTest   extends Activity
         setVolumeControlStream (AudioManager.STREAM_MUSIC);
 
         permissionCallbackPtrMap = new HashMap<Integer, Long>();
+        appPausedResumedListeners = new HashMap<Long, AppPausedResumedListener>();
     }
 
     @Override
@@ -1214,6 +1225,11 @@ public class AudioPerformanceTest   extends Activity
     {
         suspendApp();
 
+        Long[] keys = appPausedResumedListeners.keySet().toArray (new Long[appPausedResumedListeners.keySet().size()]);
+
+        for (Long k : keys)
+            appPausedResumedListeners.get (k).appPaused();
+
         try
         {
             Thread.sleep (1000); // This is a bit of a hack to avoid some hard-to-track-down
@@ -1228,6 +1244,11 @@ public class AudioPerformanceTest   extends Activity
     {
         super.onResume();
         resumeApp();
+
+        Long[] keys = appPausedResumedListeners.keySet().toArray (new Long[appPausedResumedListeners.keySet().size()]);
+
+        for (Long k : keys)
+            appPausedResumedListeners.get (k).appResumed();
     }
 
     @Override
@@ -1243,6 +1264,33 @@ public class AudioPerformanceTest   extends Activity
                    getApplicationInfo().dataDir);
     }
 
+    // Need to override this as the default implementation always finishes the activity.
+    @Override
+    public void onBackPressed()
+    {
+        ComponentPeerView focusedView = getViewWithFocusOrDefaultView();
+
+        if (focusedView == null)
+            return;
+
+        focusedView.backButtonPressed();
+    }
+
+    private ComponentPeerView getViewWithFocusOrDefaultView()
+    {
+        for (int i = 0; i < viewHolder.getChildCount(); ++i)
+        {
+            if (viewHolder.getChildAt (i).hasFocus())
+                return (ComponentPeerView) viewHolder.getChildAt (i);
+        }
+
+        if (viewHolder.getChildCount() > 0)
+            return (ComponentPeerView) viewHolder.getChildAt (0);
+
+        return null;
+    }
+
+    //==============================================================================
     private void hideActionBar()
     {
         // get "getActionBar" method
@@ -1313,23 +1361,8 @@ public class AudioPerformanceTest   extends Activity
     private native void suspendApp();
     private native void resumeApp();
     private native void setScreenSize (int screenWidth, int screenHeight, int dpi);
-
-    //==============================================================================
-    public native void deliverMessage (long value);
-    private android.os.Handler messageHandler = new android.os.Handler();
-
-    public final void postMessage (long value)
-    {
-        messageHandler.post (new MessageCallback (value));
-    }
-
-    private final class MessageCallback  implements Runnable
-    {
-        public MessageCallback (long value_)        { value = value_; }
-        public final void run()                     { deliverMessage (value); }
-
-        private long value;
-    }
+    private native void appActivityResult (int requestCode, int resultCode, Intent data);
+    private native void appNewIntent (Intent intent);
 
     //==============================================================================
     private ViewHolder viewHolder;
@@ -1342,11 +1375,16 @@ public class AudioPerformanceTest   extends Activity
     {
         ComponentPeerView v = new ComponentPeerView (this, opaque, host);
         viewHolder.addView (v);
+        addAppPausedResumedListener (v, host);
         return v;
     }
 
     public final void deleteView (ComponentPeerView view)
     {
+        removeAppPausedResumedListener (view, view.host);
+
+        view.host = 0;
+
         ViewGroup group = (ViewGroup) (view.getParent());
 
         if (group != null)
@@ -1466,11 +1504,18 @@ public class AudioPerformanceTest   extends Activity
         builder.setTitle (title)
                .setMessage (message)
                .setCancelable (true)
+               .setOnCancelListener (new DialogInterface.OnCancelListener()
+                    {
+                        public void onCancel (DialogInterface dialog)
+                        {
+                            AudioPerformanceTest.this.alertDismissed (callback, 0);
+                        }
+                    })
                .setPositiveButton ("OK", new DialogInterface.OnClickListener()
                     {
                         public void onClick (DialogInterface dialog, int id)
                         {
-                            dialog.cancel();
+                            dialog.dismiss();
                             AudioPerformanceTest.this.alertDismissed (callback, 0);
                         }
                     });
@@ -1485,11 +1530,18 @@ public class AudioPerformanceTest   extends Activity
         builder.setTitle (title)
                .setMessage (message)
                .setCancelable (true)
+               .setOnCancelListener (new DialogInterface.OnCancelListener()
+                    {
+                        public void onCancel (DialogInterface dialog)
+                        {
+                            AudioPerformanceTest.this.alertDismissed (callback, 0);
+                        }
+                    })
                .setPositiveButton (okButtonText.isEmpty() ? "OK" : okButtonText, new DialogInterface.OnClickListener()
                     {
                         public void onClick (DialogInterface dialog, int id)
                         {
-                            dialog.cancel();
+                            dialog.dismiss();
                             AudioPerformanceTest.this.alertDismissed (callback, 1);
                         }
                     })
@@ -1497,7 +1549,7 @@ public class AudioPerformanceTest   extends Activity
                     {
                         public void onClick (DialogInterface dialog, int id)
                         {
-                            dialog.cancel();
+                            dialog.dismiss();
                             AudioPerformanceTest.this.alertDismissed (callback, 0);
                         }
                     });
@@ -1511,11 +1563,18 @@ public class AudioPerformanceTest   extends Activity
         builder.setTitle (title)
                .setMessage (message)
                .setCancelable (true)
+               .setOnCancelListener (new DialogInterface.OnCancelListener()
+                    {
+                        public void onCancel (DialogInterface dialog)
+                        {
+                            AudioPerformanceTest.this.alertDismissed (callback, 0);
+                        }
+                    })
                .setPositiveButton ("Yes", new DialogInterface.OnClickListener()
                     {
                         public void onClick (DialogInterface dialog, int id)
                         {
-                            dialog.cancel();
+                            dialog.dismiss();
                             AudioPerformanceTest.this.alertDismissed (callback, 1);
                         }
                     })
@@ -1523,7 +1582,7 @@ public class AudioPerformanceTest   extends Activity
                     {
                         public void onClick (DialogInterface dialog, int id)
                         {
-                            dialog.cancel();
+                            dialog.dismiss();
                             AudioPerformanceTest.this.alertDismissed (callback, 2);
                         }
                     })
@@ -1531,7 +1590,7 @@ public class AudioPerformanceTest   extends Activity
                     {
                         public void onClick (DialogInterface dialog, int id)
                         {
-                            dialog.cancel();
+                            dialog.dismiss();
                             AudioPerformanceTest.this.alertDismissed (callback, 0);
                         }
                     });
@@ -1542,8 +1601,27 @@ public class AudioPerformanceTest   extends Activity
     public native void alertDismissed (long callback, int id);
 
     //==============================================================================
+    public interface AppPausedResumedListener
+    {
+        void appPaused();
+        void appResumed();
+    }
+
+    private Map<Long, AppPausedResumedListener> appPausedResumedListeners;
+
+    public void addAppPausedResumedListener (AppPausedResumedListener l, long listenerHost)
+    {
+        appPausedResumedListeners.put (new Long (listenerHost), l);
+    }
+
+    public void removeAppPausedResumedListener (AppPausedResumedListener l, long listenerHost)
+    {
+        appPausedResumedListeners.remove (new Long (listenerHost));
+    }
+
+    //==============================================================================
     public final class ComponentPeerView extends ViewGroup
-                                         implements View.OnFocusChangeListener
+                                         implements View.OnFocusChangeListener, AppPausedResumedListener
     {
         public ComponentPeerView (Context context, boolean opaque_, long host)
         {
@@ -1555,7 +1633,6 @@ public class AudioPerformanceTest   extends Activity
             setFocusable (true);
             setFocusableInTouchMode (true);
             setOnFocusChangeListener (this);
-            requestFocus();
 
             // swap red and blue colours to match internal opengl texture format
             ColorMatrix colorMatrix = new ColorMatrix();
@@ -1567,6 +1644,27 @@ public class AudioPerformanceTest   extends Activity
 
             colorMatrix.set (colorTransform);
             paint.setColorFilter (new ColorMatrixColorFilter (colorMatrix));
+
+            java.lang.reflect.Method method = null;
+
+            try
+            {
+                method = getClass().getMethod ("setLayerType", int.class, Paint.class);
+            }
+            catch (SecurityException e)     {}
+            catch (NoSuchMethodException e) {}
+
+            if (method != null)
+            {
+                try
+                {
+                    int layerTypeNone = 0;
+                    method.invoke (this, layerTypeNone, null);
+                }
+                catch (java.lang.IllegalArgumentException e) {}
+                catch (java.lang.IllegalAccessException e) {}
+                catch (java.lang.reflect.InvocationTargetException e) {}
+            }
         }
 
         //==============================================================================
@@ -1575,6 +1673,9 @@ public class AudioPerformanceTest   extends Activity
         @Override
         public void onDraw (Canvas canvas)
         {
+            if (host == 0)
+                return;
+
             handlePaint (host, canvas, paint);
         }
 
@@ -1596,6 +1697,9 @@ public class AudioPerformanceTest   extends Activity
         @Override
         public boolean onTouchEvent (MotionEvent event)
         {
+            if (host == 0)
+                return false;
+
             int action = event.getAction();
             long time = event.getEventTime();
 
@@ -1644,6 +1748,7 @@ public class AudioPerformanceTest   extends Activity
         private native void handleKeyDown (long host, int keycode, int textchar);
         private native void handleKeyUp (long host, int keycode, int textchar);
         private native void handleBackButton (long host);
+        private native void handleKeyboardHidden (long host);
 
         public void showKeyboard (String type)
         {
@@ -1655,17 +1760,30 @@ public class AudioPerformanceTest   extends Activity
                 {
                     imm.showSoftInput (this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
                     imm.setInputMethod (getWindowToken(), type);
+                    keyboardDismissListener.startListening();
                 }
                 else
                 {
                     imm.hideSoftInputFromWindow (getWindowToken(), 0);
+                    keyboardDismissListener.stopListening();
                 }
             }
+        }
+
+        public void backButtonPressed()
+        {
+            if (host == 0)
+                return;
+
+            handleBackButton (host);
         }
 
         @Override
         public boolean onKeyDown (int keyCode, KeyEvent event)
         {
+            if (host == 0)
+                return false;
+
             switch (keyCode)
             {
                 case KeyEvent.KEYCODE_VOLUME_UP:
@@ -1673,7 +1791,7 @@ public class AudioPerformanceTest   extends Activity
                     return super.onKeyDown (keyCode, event);
                 case KeyEvent.KEYCODE_BACK:
                 {
-                    handleBackButton (host);
+                    ((Activity) getContext()).onBackPressed();
                     return true;
                 }
 
@@ -1688,6 +1806,9 @@ public class AudioPerformanceTest   extends Activity
         @Override
         public boolean onKeyUp (int keyCode, KeyEvent event)
         {
+            if (host == 0)
+                return false;
+
             handleKeyUp (host, keyCode, event.getUnicodeChar());
             return true;
         }
@@ -1695,6 +1816,9 @@ public class AudioPerformanceTest   extends Activity
         @Override
         public boolean onKeyMultiple (int keyCode, int count, KeyEvent event)
         {
+            if (host == 0)
+                return false;
+
             if (keyCode != KeyEvent.KEYCODE_UNKNOWN || event.getAction() != KeyEvent.ACTION_MULTIPLE)
                 return super.onKeyMultiple (keyCode, count, event);
 
@@ -1707,6 +1831,65 @@ public class AudioPerformanceTest   extends Activity
 
             return false;
         }
+
+        //==============================================================================
+        private final class KeyboardDismissListener
+        {
+            public KeyboardDismissListener (ComponentPeerView viewToUse)
+            {
+                view = viewToUse;
+            }
+
+            private void startListening()
+            {
+                view.getViewTreeObserver().addOnGlobalLayoutListener(viewTreeObserver);
+            }
+
+            private void stopListening()
+            {
+                view.getViewTreeObserver().removeGlobalOnLayoutListener(viewTreeObserver);
+            }
+
+            private class TreeObserver implements ViewTreeObserver.OnGlobalLayoutListener
+            {
+                TreeObserver()
+                {
+                    keyboardShown = false;
+                }
+
+                @Override
+                public void onGlobalLayout()
+                {
+                    Rect r = new Rect();
+
+                    ViewGroup parentView = (ViewGroup) getParent();
+
+                    if (parentView == null)
+                        return;
+
+                    parentView.getWindowVisibleDisplayFrame (r);
+
+                    int diff = parentView.getHeight() - (r.bottom - r.top);
+
+                    // Arbitrary threshold, surely keyboard would take more than 20 pix.
+                    if (diff < 20 && keyboardShown)
+                    {
+                        keyboardShown = false;
+                        handleKeyboardHidden (view.host);
+                    }
+
+                    if (! keyboardShown && diff > 20)
+                        keyboardShown = true;
+                };
+
+                private boolean keyboardShown;
+            };
+
+            private ComponentPeerView view;
+            private TreeObserver viewTreeObserver = new TreeObserver();
+        }
+
+        private KeyboardDismissListener keyboardDismissListener = new KeyboardDismissListener(this);
 
         // this is here to make keyboard entry work on a Galaxy Tab2 10.1
         @Override
@@ -1727,6 +1910,9 @@ public class AudioPerformanceTest   extends Activity
         @Override
         protected void onSizeChanged (int w, int h, int oldw, int oldh)
         {
+            if (host == 0)
+                return;
+
             super.onSizeChanged (w, h, oldw, oldh);
             viewSizeChanged (host);
         }
@@ -1743,6 +1929,9 @@ public class AudioPerformanceTest   extends Activity
         @Override
         public void onFocusChange (View v, boolean hasFocus)
         {
+            if (host == 0)
+                return;
+
             if (v == this)
                 focusChanged (host, hasFocus);
         }
@@ -1777,6 +1966,29 @@ public class AudioPerformanceTest   extends Activity
         public boolean containsPoint (int x, int y)
         {
             return true; //xxx needs to check overlapping views
+        }
+
+        //==============================================================================
+        private native void handleAppPaused (long host);
+        private native void handleAppResumed (long host);
+
+        @Override
+        public void appPaused()
+        {
+            if (host == 0)
+                return;
+
+            handleAppPaused (host);
+        }
+
+        @Override
+        public void appResumed()
+        {
+            if (host == 0)
+                return;
+
+            // Ensure that navigation/status bar visibility is correctly restored.
+            handleAppResumed (host);
         }
     }
 
@@ -1895,15 +2107,129 @@ public class AudioPerformanceTest   extends Activity
     private int[] cachedRenderArray = new int [256];
 
     //==============================================================================
+    public static class NativeInvocationHandler implements InvocationHandler
+    {
+        public NativeInvocationHandler (Activity activityToUse, long nativeContextRef)
+        {
+            activity = activityToUse;
+            nativeContext = nativeContextRef;
+        }
+
+        public void nativeContextDeleted()
+        {
+            nativeContext = 0;
+        }
+
+        @Override
+        public void finalize()
+        {
+            activity.runOnUiThread (new Runnable()
+                                    {
+                                        @Override
+                                        public void run()
+                                        {
+                                            if (nativeContext != 0)
+                                                dispatchFinalize (nativeContext);
+                                        }
+                                    });
+        }
+
+        @Override
+        public Object invoke (Object proxy, Method method, Object[] args) throws Throwable
+        {
+            return dispatchInvoke (nativeContext, proxy, method, args);
+        }
+
+        //==============================================================================
+        Activity activity;
+        private long nativeContext = 0;
+
+        private native void dispatchFinalize (long nativeContextRef);
+        private native Object dispatchInvoke (long nativeContextRef, Object proxy, Method method, Object[] args);
+    }
+
+    public InvocationHandler createInvocationHandler (long nativeContextRef)
+    {
+        return new NativeInvocationHandler (this, nativeContextRef);
+    }
+
+    public void invocationHandlerContextDeleted (InvocationHandler handler)
+    {
+        ((NativeInvocationHandler) handler).nativeContextDeleted();
+    }
+
+    //==============================================================================
     public static class HTTPStream
     {
-        public HTTPStream (HttpURLConnection connection_,
-                           int[] statusCode_,
-                           StringBuffer responseHeaders_)
+        public HTTPStream (String address, boolean isPostToUse, byte[] postDataToUse,
+                           String headersToUse, int timeOutMsToUse,
+                           int[] statusCodeToUse, StringBuffer responseHeadersToUse,
+                           int numRedirectsToFollowToUse, String httpRequestCmdToUse) throws IOException
         {
-            connection = connection_;
-            statusCode = statusCode_;
-            responseHeaders = responseHeaders_;
+            isPost = isPostToUse;
+            postData = postDataToUse;
+            headers = headersToUse;
+            timeOutMs = timeOutMsToUse;
+            statusCode = statusCodeToUse;
+            responseHeaders = responseHeadersToUse;
+            totalLength = -1;
+            numRedirectsToFollow = numRedirectsToFollowToUse;
+            httpRequestCmd = httpRequestCmdToUse;
+
+            connection = createConnection (address, isPost, postData, headers, timeOutMs, httpRequestCmd);
+        }
+
+        private final HttpURLConnection createConnection (String address, boolean isPost, byte[] postData,
+                                                          String headers, int timeOutMs, String httpRequestCmdToUse) throws IOException
+        {
+            HttpURLConnection newConnection = (HttpURLConnection) (new URL(address).openConnection());
+
+            try
+            {
+                newConnection.setInstanceFollowRedirects (false);
+                newConnection.setConnectTimeout (timeOutMs);
+                newConnection.setReadTimeout (timeOutMs);
+
+                // headers - if not empty, this string is appended onto the headers that are used for the request. It must therefore be a valid set of HTML header directives, separated by newlines.
+                // So convert headers string to an array, with an element for each line
+                String headerLines[] = headers.split("\\n");
+
+                // Set request headers
+                for (int i = 0; i < headerLines.length; ++i)
+                {
+                    int pos = headerLines[i].indexOf (":");
+
+                    if (pos > 0 && pos < headerLines[i].length())
+                    {
+                        String field = headerLines[i].substring (0, pos);
+                        String value = headerLines[i].substring (pos + 1);
+
+                        if (value.length() > 0)
+                            newConnection.setRequestProperty (field, value);
+                    }
+                }
+
+                newConnection.setRequestMethod (httpRequestCmd);
+
+                if (isPost)
+                {
+                    newConnection.setDoOutput (true);
+
+                    if (postData != null)
+                    {
+                        OutputStream out = newConnection.getOutputStream();
+                        out.write(postData);
+                        out.flush();
+                    }
+                }
+
+                return newConnection;
+            }
+            catch (Throwable e)
+            {
+                newConnection.disconnect();
+                throw new IOException ("Connection error");
+            }
         }
 
         private final InputStream getCancellableStream (final boolean isInput) throws ExecutionException
@@ -1926,16 +2252,9 @@ public class AudioPerformanceTest   extends Activity
 
             try
             {
-                if (connection.getConnectTimeout() > 0)
-                    return streamFuture.get (connection.getConnectTimeout(), TimeUnit.MILLISECONDS);
-                else
-                    return streamFuture.get();
+                return streamFuture.get();
             }
             catch (InterruptedException e)
-            {
-                return null;
-            }
-            catch (TimeoutException e)
             {
                 return null;
             }
@@ -1947,36 +2266,113 @@ public class AudioPerformanceTest   extends Activity
 
         public final boolean connect()
         {
-            try
+            boolean result = false;
+            int numFollowedRedirects = 0;
+
+            while (true)
             {
+                result = doConnect();
+
+                if (! result)
+                    return false;
+
+                if (++numFollowedRedirects > numRedirectsToFollow)
+                    break;
+
+                int status = statusCode[0];
+
+                if (status == 301 || status == 302 || status == 303 || status == 307)
+                {
+                    // Assumes only one occurrence of "Location"
+                    int pos1 = responseHeaders.indexOf ("Location:") + 10;
+                    int pos2 = responseHeaders.indexOf ("\n", pos1);
+
+                    if (pos2 > pos1)
+                    {
+                        String currentLocation = connection.getURL().toString();
+                        String newLocation = responseHeaders.substring (pos1, pos2);
+
+                        try
+                        {
+                            // Handle newLocation whether it's absolute or relative
+                            URL baseUrl = new URL (currentLocation);
+                            URL newUrl  = new URL (baseUrl, newLocation);
+                            String transformedNewLocation = newUrl.toString();
+
+                            if (transformedNewLocation != currentLocation)
+                            {
+                                // Clear responseHeaders before next iteration
+                                responseHeaders.delete (0, responseHeaders.length());
+
+                                synchronized (createStreamLock)
+                                {
+                                    if (hasBeenCancelled.get())
+                                        return false;
+
+                                    connection.disconnect();
+
+                                    try
+                                    {
+                                        connection = createConnection (transformedNewLocation, isPost,
+                                                                       postData, headers, timeOutMs,
+                                                                       httpRequestCmd);
+                                    }
+                                    catch (Throwable e)
+                                    {
+                                        return false;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        catch (Throwable e)
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return result;
+        }
+
+        private final boolean doConnect()
+        {
+            synchronized (createStreamLock)
+            {
+                if (hasBeenCancelled.get())
+                    return false;
+
                 try
                 {
-                    synchronized (createStreamLock)
+                    try
                     {
-                        if (hasBeenCancelled.get())
-                            return false;
-
                         inputStream = getCancellableStream (true);
                     }
-                }
-                catch (ExecutionException e)
-                {
-                    if (connection.getResponseCode() < 400)
+                    catch (ExecutionException e)
+                    {
+                        if (connection.getResponseCode() < 400)
+                        {
+                            statusCode[0] = connection.getResponseCode();
+                            connection.disconnect();
+                            return false;
+                        }
+                    }
+                    finally
                     {
                         statusCode[0] = connection.getResponseCode();
-                        connection.disconnect();
-                        return false;
                     }
-                }
-                finally
-                {
-                    statusCode[0] = connection.getResponseCode();
-                }
-
-                synchronized (createStreamLock)
-                {
-                    if (hasBeenCancelled.get())
-                        return false;
 
                     try
                     {
@@ -1987,49 +2383,96 @@ public class AudioPerformanceTest   extends Activity
                     }
                     catch (ExecutionException e)
                     {}
+
+                    for (java.util.Map.Entry<String, java.util.List<String>> entry : connection.getHeaderFields().entrySet())
+                    {
+                        if (entry.getKey() != null && entry.getValue() != null)
+                        {
+                            responseHeaders.append(entry.getKey() + ": "
+                                                   + android.text.TextUtils.join(",", entry.getValue()) + "\n");
+
+                            if (entry.getKey().compareTo ("Content-Length") == 0)
+                                totalLength = Integer.decode (entry.getValue().get (0));
+                        }
+                    }
+
+                    return true;
                 }
-
-                for (java.util.Map.Entry<String, java.util.List<String>> entry : connection.getHeaderFields().entrySet())
-                    if (entry.getKey() != null && entry.getValue() != null)
-                        responseHeaders.append (entry.getKey() + ": "
-                                                + android.text.TextUtils.join (",", entry.getValue()) + "\n");
-
-                return true;
+                catch (IOException e)
+                {
+                    return false;
+                }
             }
-            catch (IOException e)
+        }
+
+        static class DisconnectionRunnable implements Runnable
+        {
+            public DisconnectionRunnable (HttpURLConnection theConnection,
+                                          InputStream theInputStream,
+                                          ReentrantLock theCreateStreamLock,
+                                          Object theCreateFutureLock,
+                                          Future<BufferedInputStream> theStreamFuture)
             {
-                return false;
+                connectionToDisconnect = theConnection;
+                inputStream = theInputStream;
+                createStreamLock = theCreateStreamLock;
+                createFutureLock = theCreateFutureLock;
+                streamFuture = theStreamFuture;
             }
+
+            public void run()
+            {
+                try
+                {
+                    if (! createStreamLock.tryLock())
+                    {
+                        synchronized (createFutureLock)
+                        {
+                            if (streamFuture != null)
+                                streamFuture.cancel (true);
+                        }
+
+                        createStreamLock.lock();
+                    }
+
+                    if (connectionToDisconnect != null)
+                        connectionToDisconnect.disconnect();
+
+                    if (inputStream != null)
+                        inputStream.close();
+                }
+                catch (IOException e)
+                {}
+                finally
+                {
+                    createStreamLock.unlock();
+                }
+            }
+
+            private HttpURLConnection connectionToDisconnect;
+            private InputStream inputStream;
+            private ReentrantLock createStreamLock;
+            private Object createFutureLock;
+            Future<BufferedInputStream> streamFuture;
         }
 
         public final void release()
         {
-            hasBeenCancelled.set (true);
+            DisconnectionRunnable disconnectionRunnable = new DisconnectionRunnable (connection,
+                                                                                     inputStream,
+                                                                                     createStreamLock,
+                                                                                     createFutureLock,
+                                                                                     streamFuture);
 
-            try
+            synchronized (createStreamLock)
             {
-                if (! createStreamLock.tryLock())
-                {
-                    synchronized (createFutureLock)
-                    {
-                        if (streamFuture != null)
-                            streamFuture.cancel (true);
-                    }
+                hasBeenCancelled.set (true);
 
-                    createStreamLock.lock();
-                }
-
-                if (inputStream != null)
-                    inputStream.close();
-            }
-            catch (IOException e)
-            {}
-            finally
-            {
-                createStreamLock.unlock();
+                connection = null;
             }
 
-            connection.disconnect();
+            Thread disconnectionThread = new Thread(disconnectionRunnable);
+            disconnectionThread.start();
         }
 
         public final int read (byte[] buffer, int numBytes)
@@ -2054,13 +2497,20 @@ public class AudioPerformanceTest   extends Activity
         }
 
         public final long getPosition()                 { return position; }
-        public final long getTotalLength()              { return -1; }
+        public final long getTotalLength()              { return totalLength; }
         public final boolean isExhausted()              { return false; }
         public final boolean setPosition (long newPos)  { return false; }
 
+        private boolean isPost;
+        private byte[] postData;
+        private String headers;
+        private int timeOutMs;
+        String httpRequestCmd;
         private HttpURLConnection connection;
         private int[] statusCode;
         private StringBuffer responseHeaders;
+        private int totalLength;
+        private int numRedirectsToFollow;
         private InputStream inputStream;
         private long position;
         private final ReentrantLock createStreamLock = new ReentrantLock();
@@ -2082,89 +2532,15 @@ public class AudioPerformanceTest   extends Activity
         else if (timeOutMs == 0)
             timeOutMs = 30000;
 
-        // headers - if not empty, this string is appended onto the headers that are used for the request. It must therefore be a valid set of HTML header directives, separated by newlines.
-        // So convert headers string to an array, with an element for each line
-        String headerLines[] = headers.split("\\n");
-
         for (;;)
         {
             try
             {
-                HttpURLConnection connection = (HttpURLConnection) (new URL(address).openConnection());
+                HTTPStream httpStream = new HTTPStream (address, isPost, postData, headers,
+                                                        timeOutMs, statusCode, responseHeaders,
+                                                        numRedirectsToFollow, httpRequestCmd);
 
-                if (connection != null)
-                {
-                    try
-                    {
-                        connection.setInstanceFollowRedirects (false);
-                        connection.setConnectTimeout (timeOutMs);
-                        connection.setReadTimeout (timeOutMs);
-
-                        // Set request headers
-                        for (int i = 0; i < headerLines.length; ++i)
-                        {
-                            int pos = headerLines[i].indexOf (":");
-
-                            if (pos > 0 && pos < headerLines[i].length())
-                            {
-                                String field = headerLines[i].substring (0, pos);
-                                String value = headerLines[i].substring (pos + 1);
-
-                                if (value.length() > 0)
-                                    connection.setRequestProperty (field, value);
-                            }
-                        }
-
-                        connection.setRequestMethod (httpRequestCmd);
-                        if (isPost)
-                        {
-                            connection.setDoOutput (true);
-
-                            if (postData != null)
-                            {
-                                OutputStream out = connection.getOutputStream();
-                                out.write(postData);
-                                out.flush();
-                            }
-                        }
-
-                        HTTPStream httpStream = new HTTPStream (connection, statusCode, responseHeaders);
-
-                        // Process redirect & continue as necessary
-                        int status = statusCode[0];
-
-                        if (--numRedirectsToFollow >= 0
-                             && (status == 301 || status == 302 || status == 303 || status == 307))
-                        {
-                            // Assumes only one occurrence of "Location"
-                            int pos1 = responseHeaders.indexOf ("Location:") + 10;
-                            int pos2 = responseHeaders.indexOf ("\n", pos1);
-
-                            if (pos2 > pos1)
-                            {
-                                String newLocation = responseHeaders.substring(pos1, pos2);
-                                // Handle newLocation whether it's absolute or relative
-                                URL baseUrl = new URL (address);
-                                URL newUrl = new URL (baseUrl, newLocation);
-                                String transformedNewLocation = newUrl.toString();
-
-                                if (transformedNewLocation != address)
-                                {
-                                    address = transformedNewLocation;
-                                    // Clear responseHeaders before next iteration
-                                    responseHeaders.delete (0, responseHeaders.length());
-                                    continue;
-                                }
-                            }
-                        }
-
-                        return httpStream;
-                    }
-                    catch (Throwable e)
-                    {
-                        connection.disconnect();
-                    }
-                }
+                return httpStream;
             }
             catch (Throwable e) {}
 
@@ -2177,6 +2553,280 @@ public class AudioPerformanceTest   extends Activity
         startActivity (new Intent (Intent.ACTION_VIEW, Uri.parse (url)));
     }
 
+    private native boolean webViewPageLoadStarted (long host, WebView view, String url);
+    private native void webViewPageLoadFinished (long host, WebView view, String url);
+    private native void webViewReceivedError (long host, WebView view, WebResourceRequest request, WebResourceError error);    private native void webViewReceivedHttpError (long host, WebView view, WebResourceRequest request, WebResourceResponse errorResponse);    private native void webViewReceivedSslError (long host, WebView view, SslErrorHandler handler, SslError error);
+    private native void webViewCloseWindowRequest (long host, WebView view);
+    private native void webViewCreateWindowRequest (long host, WebView view);
+
+    //==============================================================================
+    public class JuceWebViewClient   extends WebViewClient
+    {
+        public JuceWebViewClient (long hostToUse)
+        {
+            host = hostToUse;
+        }
+
+        public void hostDeleted()
+        {
+            synchronized (hostLock)
+            {
+                host = 0;
+            }
+        }
+
+        @Override
+        public void onPageFinished (WebView view, String url)
+        {
+            if (host == 0)
+                return;
+
+            webViewPageLoadFinished (host, view, url);
+        }
+
+        @Override
+        public void onReceivedSslError (WebView view, SslErrorHandler handler, SslError error)
+        {
+            if (host == 0)
+                return;
+
+            webViewReceivedSslError (host, view, handler, error);
+        }
+
+        @Override
+        public void onReceivedError (WebView view, WebResourceRequest request, WebResourceError error)
+        {
+            if (host == 0)
+                return;
+
+            webViewReceivedError (host, view, request, error);
+        }
+
+        @Override
+        public void onReceivedHttpError (WebView view, WebResourceRequest request, WebResourceResponse errorResponse)
+        {
+            if (host == 0)
+                return;
+
+            webViewReceivedHttpError (host, view, request, errorResponse);
+        }
+
+        @Override
+        public WebResourceResponse shouldInterceptRequest (WebView view, WebResourceRequest request)
+        {
+            synchronized (hostLock)
+            {
+                if (host != 0)
+                {
+                    boolean shouldLoad = webViewPageLoadStarted (host, view, request.getUrl().toString());
+
+                    if (shouldLoad)
+                        return null;
+                }
+            }
+
+            return new WebResourceResponse ("text/html", null, null);
+        }
+
+        private long host;
+        private final Object hostLock = new Object();
+    }
+
+    public class JuceWebChromeClient    extends WebChromeClient
+    {
+        public JuceWebChromeClient (long hostToUse)
+        {
+            host = hostToUse;
+        }
+
+        @Override
+        public void onCloseWindow (WebView window)
+        {
+            webViewCloseWindowRequest (host, window);
+        }
+
+        @Override
+        public boolean onCreateWindow (WebView view, boolean isDialog,
+                                       boolean isUserGesture, Message resultMsg)
+        {
+            webViewCreateWindowRequest (host, view);
+            return false;
+        }
+
+        private long host;
+        private final Object hostLock = new Object();
+    }
+
+
+    //==============================================================================
+    public class CameraDeviceStateCallback  extends CameraDevice.StateCallback
+    {
+        private native void cameraDeviceStateClosed       (long host, CameraDevice camera);
+        private native void cameraDeviceStateDisconnected (long host, CameraDevice camera);
+        private native void cameraDeviceStateError        (long host, CameraDevice camera, int error);
+        private native void cameraDeviceStateOpened       (long host, CameraDevice camera);
+
+        CameraDeviceStateCallback (long hostToUse)
+        {
+            host = hostToUse;
+        }
+
+        @Override
+        public void onClosed (CameraDevice camera)
+        {
+            cameraDeviceStateClosed (host, camera);
+        }
+
+        @Override
+        public void onDisconnected (CameraDevice camera)
+        {
+            cameraDeviceStateDisconnected (host, camera);
+        }
+
+        @Override
+        public void onError (CameraDevice camera, int error)
+        {
+            cameraDeviceStateError (host, camera, error);
+        }
+
+        @Override
+        public void onOpened (CameraDevice camera)
+        {
+            cameraDeviceStateOpened (host, camera);
+        }
+
+        private long host;
+    }
+
+    //==============================================================================
+    public class CameraCaptureSessionStateCallback  extends CameraCaptureSession.StateCallback
+    {
+        private native void cameraCaptureSessionActive          (long host, CameraCaptureSession session);
+        private native void cameraCaptureSessionClosed          (long host, CameraCaptureSession session);
+        private native void cameraCaptureSessionConfigureFailed (long host, CameraCaptureSession session);
+        private native void cameraCaptureSessionConfigured      (long host, CameraCaptureSession session);
+        private native void cameraCaptureSessionReady           (long host, CameraCaptureSession session);
+
+        CameraCaptureSessionStateCallback (long hostToUse)
+        {
+            host = hostToUse;
+        }
+
+        @Override
+        public void onActive (CameraCaptureSession session)
+        {
+            cameraCaptureSessionActive (host, session);
+        }
+
+        @Override
+        public void onClosed (CameraCaptureSession session)
+        {
+            cameraCaptureSessionClosed (host, session);
+        }
+
+        @Override
+        public void onConfigureFailed (CameraCaptureSession session)
+        {
+            cameraCaptureSessionConfigureFailed (host, session);
+        }
+
+        @Override
+        public void onConfigured (CameraCaptureSession session)
+        {
+            cameraCaptureSessionConfigured (host, session);
+        }
+
+        @Override
+        public void onReady (CameraCaptureSession session)
+        {
+            cameraCaptureSessionReady (host, session);
+        }
+
+        private long host;
+    }
+
+    //==============================================================================
+    public class CameraCaptureSessionCaptureCallback    extends CameraCaptureSession.CaptureCallback
+    {
+        private native void cameraCaptureSessionCaptureCompleted  (long host, boolean isPreview, CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result);
+        private native void cameraCaptureSessionCaptureFailed     (long host, boolean isPreview, CameraCaptureSession session, CaptureRequest request, CaptureFailure failure);
+        private native void cameraCaptureSessionCaptureProgressed (long host, boolean isPreview, CameraCaptureSession session, CaptureRequest request, CaptureResult partialResult);
+        private native void cameraCaptureSessionCaptureStarted    (long host, boolean isPreview, CameraCaptureSession session, CaptureRequest request, long timestamp, long frameNumber);
+        private native void cameraCaptureSessionCaptureSequenceAborted   (long host, boolean isPreview, CameraCaptureSession session, int sequenceId);
+        private native void cameraCaptureSessionCaptureSequenceCompleted (long host, boolean isPreview, CameraCaptureSession session, int sequenceId, long frameNumber);
+
+        CameraCaptureSessionCaptureCallback (long hostToUse, boolean shouldBePreview)
+        {
+            host = hostToUse;
+            preview = shouldBePreview;
+        }
+
+        @Override
+        public void onCaptureCompleted (CameraCaptureSession session, CaptureRequest request,
+                                        TotalCaptureResult result)
+        {
+            cameraCaptureSessionCaptureCompleted (host, preview, session, request, result);
+        }
+
+        @Override
+        public void onCaptureFailed (CameraCaptureSession session, CaptureRequest request, CaptureFailure failure)
+        {
+            cameraCaptureSessionCaptureFailed (host, preview, session, request, failure);
+        }
+
+        @Override
+        public void onCaptureProgressed (CameraCaptureSession session, CaptureRequest request,
+                                         CaptureResult partialResult)
+        {
+            cameraCaptureSessionCaptureProgressed (host, preview, session, request, partialResult);
+        }
+
+        @Override
+        public void onCaptureSequenceAborted (CameraCaptureSession session, int sequenceId)
+        {
+            cameraCaptureSessionCaptureSequenceAborted (host, preview, session, sequenceId);
+        }
+
+        @Override
+        public void onCaptureSequenceCompleted (CameraCaptureSession session, int sequenceId, long frameNumber)
+        {
+            cameraCaptureSessionCaptureSequenceCompleted (host, preview, session, sequenceId, frameNumber);
+        }
+
+        @Override
+        public void onCaptureStarted (CameraCaptureSession session, CaptureRequest request, long timestamp,
+                                      long frameNumber)
+        {
+            cameraCaptureSessionCaptureStarted (host, preview, session, request, timestamp, frameNumber);
+        }
+
+        private long host;
+        private boolean preview;
+    }
+
+    //==============================================================================
+    public class JuceOrientationEventListener    extends OrientationEventListener
+    {
+        private native void deviceOrientationChanged (long host, int orientation);
+
+        public JuceOrientationEventListener (long hostToUse, Context context, int rate)
+        {
+            super (context, rate);
+
+            host = hostToUse;
+        }
+
+        @Override
+        public void onOrientationChanged (int orientation)
+        {
+            deviceOrientationChanged (host, orientation);
+        }
+
+        private long host;
+    }
+
+
+    //==============================================================================
     public static final String getLocaleValue (boolean isRegion)
     {
         java.util.Locale locale = java.util.Locale.getDefault();
@@ -2190,43 +2840,36 @@ public class AudioPerformanceTest   extends Activity
         return Environment.getExternalStoragePublicDirectory (type).getAbsolutePath();
     }
 
-    public static final String getDocumentsFolder()  { return Environment.getDataDirectory().getAbsolutePath(); }
+    public static final String getDocumentsFolder()
+    {
+        if (getAndroidSDKVersion() >= 19)
+            return getFileLocation ("Documents");
+
+        return Environment.getDataDirectory().getAbsolutePath();
+    }
+
     public static final String getPicturesFolder()   { return getFileLocation (Environment.DIRECTORY_PICTURES); }
     public static final String getMusicFolder()      { return getFileLocation (Environment.DIRECTORY_MUSIC); }
     public static final String getMoviesFolder()     { return getFileLocation (Environment.DIRECTORY_MOVIES); }
     public static final String getDownloadsFolder()  { return getFileLocation (Environment.DIRECTORY_DOWNLOADS); }
 
     //==============================================================================
-    private final class SingleMediaScanner  implements MediaScannerConnectionClient
+    @Override
+    protected void onActivityResult (int requestCode, int resultCode, Intent data)
     {
-        public SingleMediaScanner (Context context, String filename)
-        {
-            file = filename;
-            msc = new MediaScannerConnection (context, this);
-            msc.connect();
-        }
-
-        @Override
-        public void onMediaScannerConnected()
-        {
-            msc.scanFile (file, null);
-        }
-
-        @Override
-        public void onScanCompleted (String path, Uri uri)
-        {
-            msc.disconnect();
-        }
-
-        private MediaScannerConnection msc;
-        private String file;
+        appActivityResult (requestCode, resultCode, data);
     }
 
-    public final void scanFile (String filename)
+    @Override
+    protected void onNewIntent (Intent intent)
     {
-        new SingleMediaScanner (this, filename);
+        super.onNewIntent(intent);
+        setIntent(intent);
+
+        appNewIntent (intent);
     }
 
+    //==============================================================================
     public final Typeface getTypeFaceFromAsset (String assetName)
     {
         try
@@ -2308,7 +2951,7 @@ public class AudioPerformanceTest   extends Activity
         return null;
     }
 
-    public final int getAndroidSDKVersion()
+    public static final int getAndroidSDKVersion()
     {
         return android.os.Build.VERSION.SDK_INT;
     }

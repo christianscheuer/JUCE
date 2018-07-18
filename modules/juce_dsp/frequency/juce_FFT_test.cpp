@@ -24,10 +24,14 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 struct FFTUnitTest  : public UnitTest
 {
-    FFTUnitTest()  : UnitTest("FFT") {}
+    FFTUnitTest()  : UnitTest ("FFT", "DSP") {}
 
     static void fillRandom (Random& random, Complex<float>* buffer, size_t n)
     {
@@ -52,25 +56,25 @@ struct FFTUnitTest  : public UnitTest
     }
 
     static void performReferenceFourier (const Complex<float>* in, Complex<float>* out,
-                                         size_t n, bool reverve)
+                                         size_t n, bool reverse)
     {
-        float base_freq = static_cast<float>(((reverve ? 1.0 : -1.0) * 2.0 * double_Pi)
-                                              / static_cast<float> (n));
+        auto base_freq = static_cast<float> (((reverse ? 1.0 : -1.0) * MathConstants<double>::twoPi)
+                                               / static_cast<float> (n));
 
         for (size_t i = 0; i < n; ++i)
             out[i] = freqConvolution (in, static_cast<float>(i) * base_freq, n);
     }
 
     static void performReferenceFourier (const float* in, Complex<float>* out,
-                                         size_t n, bool reverve)
+                                         size_t n, bool reverse)
     {
         HeapBlock<Complex<float>> buffer (n);
 
         for (size_t i = 0; i < n; ++i)
             buffer.getData()[i] = Complex<float> (in[i], 0.0f);
 
-        float base_freq = static_cast<float>(((reverve ? 1.0 : -1.0) * 2.0 * double_Pi)
-                                             / static_cast<float> (n));
+        float base_freq = static_cast<float> (((reverse ? 1.0 : -1.0) * MathConstants<double>::twoPi)
+                                                / static_cast<float> (n));
 
         for (size_t i = 0; i < n; ++i)
             out[i] = freqConvolution (buffer.getData(), static_cast<float>(i) * base_freq, n);
@@ -113,6 +117,14 @@ struct FFTUnitTest  : public UnitTest
                 fft.performRealOnlyForwardTransform ((float*) output.getData());
                 u.expect (checkArrayIsSimilar (reference.getData(), output.getData(), n));
 
+                // fill only first half with real numbers
+                zeromem (output.getData(), n * sizeof (Complex<float>));
+                memcpy (reinterpret_cast<float*> (output.getData()), input.getData(), n * sizeof (float));
+
+                fft.performRealOnlyForwardTransform ((float*) output.getData(), true);
+                std::fill (reference.getData() + ((n >> 1) + 1), reference.getData() + n, std::complex<float> (0.0f));
+                u.expect (checkArrayIsSimilar (reference.getData(), output.getData(), (n >> 1) + 1));
+
                 memcpy (output.getData(), reference.getData(), n * sizeof (Complex<float>));
                 fft.performRealOnlyInverseTransform ((float*) output.getData());
                 u.expect (checkArrayIsSimilar ((float*) output.getData(), input.getData(), n));
@@ -132,7 +144,7 @@ struct FFTUnitTest  : public UnitTest
                 FFT fft ((int) order);
 
                 HeapBlock<float> inout (n << 1), reference (n << 1);
-                HeapBlock<Complex<float> > frequency (n);
+                HeapBlock<Complex<float>> frequency (n);
 
                 fillRandom (random, inout.getData(), n);
                 zeromem (reference.getData(), sizeof (float) * (n << 1));
@@ -160,7 +172,7 @@ struct FFTUnitTest  : public UnitTest
 
                 FFT fft ((int) order);
 
-                HeapBlock<Complex<float> > input (n), buffer (n), output (n), reference (n);
+                HeapBlock<Complex<float>> input (n), buffer (n), output (n), reference (n);
 
                 fillRandom (random, input.getData(), n);
                 performReferenceFourier (input.getData(), reference.getData(), n, false);
@@ -196,3 +208,6 @@ struct FFTUnitTest  : public UnitTest
 };
 
 static FFTUnitTest fftUnitTest;
+
+} // namespace dsp
+} // namespace juce

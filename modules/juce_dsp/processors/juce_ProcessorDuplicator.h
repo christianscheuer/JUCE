@@ -24,6 +24,10 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 /**
     Converts a mono processor class into a multi-channel version by duplicating it
@@ -32,6 +36,8 @@
     When the prepare method is called, it uses the specified number of channels to
     instantiate the appropriate number of instances, which it then uses in its
     process() method.
+
+    @tags{DSP}
 */
 template <typename MonoProcessorType, typename StateType>
 struct ProcessorDuplicator
@@ -88,3 +94,6 @@ private:
 
     juce::OwnedArray<MonoProcessorType> processors;
 };
+
+} // namespace dsp
+} // namespace juce

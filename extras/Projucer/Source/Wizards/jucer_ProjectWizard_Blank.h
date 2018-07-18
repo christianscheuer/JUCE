@@ -24,6 +24,10 @@
   ==============================================================================
 */
 
+#pragma once
+
+
+//==============================================================================
 struct BlankAppWizard   : public NewProjectWizard
 {
     BlankAppWizard()  {}
@@ -35,7 +39,7 @@ struct BlankAppWizard   : public NewProjectWizard
     bool initialiseProject (Project& project) override
     {
         createSourceFolder();
-        project.getProjectTypeValue() = ProjectType_GUIApp::getTypeName();
+        project.setProjectType (ProjectType_GUIApp::getTypeName());
         Project::Item sourceGroup (createSourceGroup (project));
         setExecutableNameForAllTargets (project, File::createLegalFileName (appTitle));
 

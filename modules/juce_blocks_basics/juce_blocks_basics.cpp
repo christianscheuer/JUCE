@@ -20,24 +20,25 @@
   ==============================================================================
 */
 
-
 #include "juce_blocks_basics.h"
 
-namespace juce
-{
-    namespace BlocksProtocol
-    {
-        #include "protocol/juce_BitPackingUtilities.h"
-        #include "protocol/juce_BlocksProtocolDefinitions.h"
-        #include "protocol/juce_HostPacketDecoder.h"
-        #include "protocol/juce_HostPacketBuilder.h"
-        #include "protocol/juce_BlockModels.h"
-    }
+#if ! JUCE_HAS_CONSTEXPR
+ #ifndef JUCE_DEMO_RUNNER
+  #error "The juce_blocks_basics module requires a compiler that supports constexpr"
+ #endif
+#else
 
-    #include "blocks/juce_BlockConfigManager.h"
-    #include "blocks/juce_Block.cpp"
-    #include "topology/juce_PhysicalTopologySource.cpp"
-    #include "topology/juce_RuleBasedTopologySource.cpp"
-    #include "visualisers/juce_DrumPadLEDProgram.cpp"
-    #include "visualisers/juce_BitmapLEDProgram.cpp"
-}
+#include "protocol/juce_BitPackingUtilities.h"
+#include "protocol/juce_BlocksProtocolDefinitions.h"
+#include "protocol/juce_HostPacketDecoder.h"
+#include "protocol/juce_HostPacketBuilder.h"
+#include "protocol/juce_BlockModels.h"
+
+#include "blocks/juce_BlockConfigManager.h"
+#include "blocks/juce_Block.cpp"
+#include "topology/juce_PhysicalTopologySource.cpp"
+#include "topology/juce_RuleBasedTopologySource.cpp"
+#include "visualisers/juce_DrumPadLEDProgram.cpp"
+#include "visualisers/juce_BitmapLEDProgram.cpp"
+
+#endif

@@ -24,12 +24,16 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 struct FFT::Instance
 {
     virtual ~Instance() {}
     virtual void perform (const Complex<float>* input, Complex<float>* output, bool inverse) const noexcept = 0;
-    virtual void performRealOnlyForwardTransform (float*) const noexcept = 0;
+    virtual void performRealOnlyForwardTransform (float*, bool) const noexcept = 0;
     virtual void performRealOnlyInverseTransform (float*) const noexcept = 0;
 };
 
@@ -37,8 +41,9 @@ struct FFT::Engine
 {
     Engine (int priorityToUse) : enginePriority (priorityToUse)
     {
-        EnginePriorityComparator comparator;
-        getEngines().addSorted (comparator, this);
+        auto& list = getEngines();
+        list.add (this);
+        std::sort (list.begin(), list.end(), [] (Engine* a, Engine* b) { return b->enginePriority < a->enginePriority; });
     }
 
     virtual ~Engine() {}
@@ -57,15 +62,6 @@ struct FFT::Engine
     }
 
 private:
-    struct EnginePriorityComparator
-    {
-        static int compareElements (Engine* first, Engine* second) noexcept
-        {
-            // sort in reverse order
-            return DefaultElementComparator<int>::compareElements (second->enginePriority, first->enginePriority);
-        }
-    };
-
     static Array<Engine*>& getEngines()
     {
         static Array<Engine*> engines;
@@ -96,8 +92,8 @@ struct FFTFallback  : public FFT::Instance
 
     FFTFallback (int order)
     {
-        configForward = new FFTConfig (1 << order, false);
-        configInverse = new FFTConfig (1 << order, true);
+        configForward.reset (new FFTConfig (1 << order, false));
+        configInverse.reset (new FFTConfig (1 << order, true));
 
         size = 1 << order;
     }
@@ -131,7 +127,7 @@ struct FFTFallback  : public FFT::Instance
 
     const size_t maxFFTScratchSpaceToAlloca = 256 * 1024;
 
-    void performRealOnlyForwardTransform (float* d) const noexcept override
+    void performRealOnlyForwardTransform (float* d, bool) const noexcept override
     {
         if (size == 1)
             return;
@@ -170,17 +166,19 @@ struct FFTFallback  : public FFT::Instance
     void performRealOnlyForwardTransform (Complex<float>* scratch, float* d) const noexcept
     {
         for (int i = 0; i < size; ++i)
-        {
-            scratch[i].real (d[i]);
-            scratch[i].imag (0);
-        }
+            scratch[i] = { d[i], 0 };
 
         perform (scratch, reinterpret_cast<Complex<float>*> (d), false);
     }
 
     void performRealOnlyInverseTransform (Complex<float>* scratch, float* d) const noexcept
     {
-        perform (reinterpret_cast<const Complex<float>*> (d), scratch, true);
+        auto* input = reinterpret_cast<Complex<float>*> (d);
+
+        for (auto i = size >> 1; i < size; ++i)
+            input[i] = std::conj (input[size - i]);
+
+        perform (input, scratch, true);
 
         for (int i = 0; i < size; ++i)
         {
@@ -195,34 +193,34 @@ struct FFTFallback  : public FFT::Instance
         FFTConfig (int sizeOfFFT, bool isInverse)
             : fftSize (sizeOfFFT), inverse (isInverse), twiddleTable ((size_t) sizeOfFFT)
         {
-            const double inverseFactor = (inverse ? 2.0 : -2.0) * double_Pi / (double) fftSize;
+            auto inverseFactor = (inverse ? 2.0 : -2.0) * MathConstants<double>::pi / (double) fftSize;
 
             if (fftSize <= 4)
             {
                 for (int i = 0; i < fftSize; ++i)
                 {
-                    const double phase = i * inverseFactor;
+                    auto phase = i * inverseFactor;
 
-                    twiddleTable[i].real ((float) std::cos (phase));
-                    twiddleTable[i].imag ((float) std::sin (phase));
+                    twiddleTable[i] = { (float) std::cos (phase),
+                                        (float) std::sin (phase) };
                 }
             }
             else
             {
                 for (int i = 0; i < fftSize / 4; ++i)
                 {
-                    const double phase = i * inverseFactor;
+                    auto phase = i * inverseFactor;
 
-                    twiddleTable[i].real ((float) std::cos (phase));
-                    twiddleTable[i].imag ((float) std::sin (phase));
+                    twiddleTable[i] = { (float) std::cos (phase),
+                                        (float) std::sin (phase) };
                 }
 
                 for (int i = fftSize / 4; i < fftSize / 2; ++i)
                 {
-                    const int index = i - fftSize / 4;
+                    auto other = twiddleTable[i - fftSize / 4];
 
-                    twiddleTable[i].real (inverse ? -twiddleTable[index].imag() : twiddleTable[index].imag());
-                    twiddleTable[i].imag (inverse ? twiddleTable[index].real() : -twiddleTable[index].real());
+                    twiddleTable[i] = { inverse ? -other.imag() :  other.imag(),
+                                        inverse ?  other.real() : -other.real() };
                 }
 
                 twiddleTable[fftSize / 2].real (-1.0f);
@@ -230,12 +228,12 @@ struct FFTFallback  : public FFT::Instance
 
                 for (int i = fftSize / 2; i < fftSize; ++i)
                 {
-                    const int index = fftSize / 2 - (i - fftSize / 2);
+                    auto index = fftSize / 2 - (i - fftSize / 2);
                     twiddleTable[i] = conj(twiddleTable[index]);
                 }
             }
 
-            const int root = (int) std::sqrt ((double) fftSize);
+            auto root = (int) std::sqrt ((double) fftSize);
             int divisor = 4, n = fftSize;
 
             for (int i = 0; i < numElementsInArray (factors); ++i)
@@ -394,17 +392,19 @@ struct FFTFallback  : public FFT::Instance
 
                 if (inverse)
                 {
-                    data[length].real (s5.real() - s4.imag());
-                    data[length].imag (s5.imag() + s4.real());
-                    data[lengthX3].real (s5.real() + s4.imag());
-                    data[lengthX3].imag (s5.imag() - s4.real());
+                    data[length] = { s5.real() - s4.imag(),
+                                     s5.imag() + s4.real() };
+
+                    data[lengthX3] = { s5.real() + s4.imag(),
+                                       s5.imag() - s4.real() };
                 }
                 else
                 {
-                    data[length].real (s5.real() + s4.imag());
-                    data[length].imag (s5.imag() - s4.real());
-                    data[lengthX3].real (s5.real() - s4.imag());
-                    data[lengthX3].imag (s5.imag() + s4.real());
+                    data[length] = { s5.real() + s4.imag(),
+                                     s5.imag() - s4.real() };
+
+                    data[lengthX3] = { s5.real() - s4.imag(),
+                                       s5.imag() + s4.real() };
                 }
 
                 ++data;
@@ -416,7 +416,7 @@ struct FFTFallback  : public FFT::Instance
 
     //==============================================================================
     SpinLock processLock;
-    ScopedPointer<FFTConfig> configForward, configInverse;
+    std::unique_ptr<FFTConfig> configForward, configInverse;
     int size;
 };
 
@@ -437,7 +437,7 @@ struct AppleFFT  : public FFT::Instance
     AppleFFT (int orderToUse)
         : order (static_cast<vDSP_Length> (orderToUse)),
           fftSetup (vDSP_create_fftsetup (order, 2)),
-          forwardNormalisation (.5f),
+          forwardNormalisation (0.5f),
           inverseNormalisation (1.0f / static_cast<float> (1 << order))
     {}
 
@@ -464,7 +464,7 @@ struct AppleFFT  : public FFT::Instance
         vDSP_vsmul ((float*) output, 1, &factor, (float*) output, 1, static_cast<size_t> (size << 1));
     }
 
-    void performRealOnlyForwardTransform (float* inoutData) const noexcept override
+    void performRealOnlyForwardTransform (float* inoutData, bool ignoreNegativeFreqs) const noexcept override
     {
         auto size = (1 << order);
         auto* inout = reinterpret_cast<Complex<float>*> (inoutData);
@@ -473,7 +473,8 @@ struct AppleFFT  : public FFT::Instance
         inoutData[size] = 0.0f;
         vDSP_fft_zrip (fftSetup, &splitInOut, 2, order, kFFTDirection_Forward);
         vDSP_vsmul (inoutData, 1, &forwardNormalisation, inoutData, 1, static_cast<size_t> (size << 1));
-        mirrorResult (inout);
+
+        mirrorResult (inout, ignoreNegativeFreqs);
     }
 
     void performRealOnlyInverseTransform (float* inoutData) const noexcept override
@@ -495,7 +496,7 @@ struct AppleFFT  : public FFT::Instance
 
 private:
     //==============================================================================
-    void mirrorResult (Complex<float>* out) const noexcept
+    void mirrorResult (Complex<float>* out, bool ignoreNegativeFreqs) const noexcept
     {
         auto size = (1 << order);
         auto i = size >> 1;
@@ -506,8 +507,9 @@ private:
         out[i++] = { out[0].imag(), 0.0 };
         out[0]   = { out[0].real(), 0.0 };
 
-        for (; i < size; ++i)
-            out[i] = std::conj (out[size - i]);
+        if (! ignoreNegativeFreqs)
+            for (; i < size; ++i)
+                out[i] = std::conj (out[size - i]);
     }
 
     static DSPSplitComplex toSplitComplex (Complex<float>* data) noexcept
@@ -598,14 +600,14 @@ struct FFTWImpl  : public FFT::Instance
 
       #if ! JUCE_DSP_USE_STATIC_FFTW
        #if JUCE_MAC
-        const char* libsuffix = "dylib";
+        auto libName = "libfftw3f.dylib";
        #elif JUCE_WINDOWS
-        const char* libsuffix = "dll";
+        auto libName = "libfftw3f.dll";
        #else
-        const char* libsuffix = "so";
+        auto libName = "libfftw3f.so";
        #endif
 
-        if (lib.open (String ("libfftw3f.") + libsuffix))
+        if (lib.open (libName))
       #endif
         {
             Symbols symbols;
@@ -671,7 +673,7 @@ struct FFTWImpl  : public FFT::Instance
         }
     }
 
-    void performRealOnlyForwardTransform (float* inputOutputData) const noexcept override
+    void performRealOnlyForwardTransform (float* inputOutputData, bool ignoreNegativeFreqs) const noexcept override
     {
         if (order == 0)
             return;
@@ -682,8 +684,9 @@ struct FFTWImpl  : public FFT::Instance
 
         auto size = (1 << order);
 
-        for (auto i = size >> 1; i < size; ++i)
-            out[i] = std::conj (out[size - i]);
+        if (! ignoreNegativeFreqs)
+            for (auto i = size >> 1; i < size; ++i)
+                out[i] = std::conj (out[size - i]);
     }
 
     void performRealOnlyInverseTransform (float* inputOutputData) const noexcept override
@@ -761,7 +764,7 @@ struct IntelFFT  : public FFT::Instance
             DftiComputeForward (c2c, (void*) input, output);
     }
 
-    void performRealOnlyForwardTransform (float* inputOutputData) const noexcept override
+    void performRealOnlyForwardTransform (float* inputOutputData, bool ignoreNegativeFreqs) const noexcept override
     {
         if (order == 0)
             return;
@@ -771,8 +774,9 @@ struct IntelFFT  : public FFT::Instance
         auto* out = reinterpret_cast<Complex<float>*> (inputOutputData);
         auto size = (1 << order);
 
-        for (auto i = size >> 1; i < size; ++i)
-            out[i] = std::conj (out[size - i]);
+        if (! ignoreNegativeFreqs)
+            for (auto i = size >> 1; i < size; ++i)
+                out[i] = std::conj (out[size - i]);
     }
 
     void performRealOnlyInverseTransform (float* inputOutputData) const noexcept override
@@ -792,7 +796,8 @@ FFT::EngineImpl<IntelFFT> fftwEngine;
 FFT::FFT (int order)
     : engine (FFT::Engine::createBestEngineForPlatform (order)),
       size (1 << order)
-{}
+{
+}
 
 FFT::~FFT() {}
 
@@ -802,10 +807,10 @@ void FFT::perform (const Complex<float>* input, Complex<float>* output, bool inv
         engine->perform (input, output, inverse);
 }
 
-void FFT::performRealOnlyForwardTransform (float* inputOutputData) const noexcept
+void FFT::performRealOnlyForwardTransform (float* inputOutputData, bool ignoreNeagtiveFreqs) const noexcept
 {
     if (engine != nullptr)
-        engine->performRealOnlyForwardTransform (inputOutputData);
+        engine->performRealOnlyForwardTransform (inputOutputData, ignoreNeagtiveFreqs);
 }
 
 void FFT::performRealOnlyInverseTransform (float* inputOutputData) const noexcept
@@ -827,3 +832,6 @@ void FFT::performFrequencyOnlyForwardTransform (float* inputOutputData) const no
 
     zeromem (&inputOutputData[size], sizeof (float) * static_cast<size_t> (size));
 }
+
+} // namespace dsp
+} // namespace juce

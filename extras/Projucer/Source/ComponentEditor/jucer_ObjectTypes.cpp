@@ -24,45 +24,45 @@
   ==============================================================================
 */
 
-#include "../jucer_Headers.h"
+#include "../Application/jucer_Headers.h"
 
 #include "jucer_JucerDocument.h"
-#include "components/jucer_ComponentUndoableAction.h"
-#include "properties/jucer_JustificationProperty.h"
-#include "properties/jucer_FontPropertyComponent.h"
-#include "properties/jucer_ComponentBooleanProperty.h"
-#include "properties/jucer_ComponentChoiceProperty.h"
-#include "properties/jucer_ComponentTextProperty.h"
-#include "properties/jucer_ComponentColourProperty.h"
-#include "properties/jucer_FilePropertyComponent.h"
-#include "paintelements/jucer_ImageResourceProperty.h"
+#include "Components/jucer_ComponentUndoableAction.h"
+#include "Properties/jucer_JustificationProperty.h"
+#include "Properties/jucer_FontPropertyComponent.h"
+#include "Properties/jucer_ComponentBooleanProperty.h"
+#include "Properties/jucer_ComponentChoiceProperty.h"
+#include "Properties/jucer_ComponentTextProperty.h"
+#include "Properties/jucer_ComponentColourProperty.h"
+#include "Properties/jucer_FilePropertyComponent.h"
+#include "PaintElements/jucer_ImageResourceProperty.h"
 
 #include "jucer_ObjectTypes.h"
 
-#include "paintelements/jucer_PaintElementUndoableAction.h"
-#include "paintelements/jucer_PaintElementRectangle.h"
-#include "paintelements/jucer_PaintElementRoundedRectangle.h"
-#include "paintelements/jucer_PaintElementImage.h"
-#include "paintelements/jucer_PaintElementEllipse.h"
-#include "paintelements/jucer_PaintElementPath.h"
-#include "paintelements/jucer_PaintElementText.h"
-#include "paintelements/jucer_PaintElementGroup.h"
+#include "PaintElements/jucer_PaintElementUndoableAction.h"
+#include "PaintElements/jucer_PaintElementRectangle.h"
+#include "PaintElements/jucer_PaintElementRoundedRectangle.h"
+#include "PaintElements/jucer_PaintElementImage.h"
+#include "PaintElements/jucer_PaintElementEllipse.h"
+#include "PaintElements/jucer_PaintElementPath.h"
+#include "PaintElements/jucer_PaintElementText.h"
+#include "PaintElements/jucer_PaintElementGroup.h"
 
-#include "components/jucer_ButtonHandler.h"
-#include "components/jucer_TextButtonHandler.h"
-#include "components/jucer_ToggleButtonHandler.h"
-#include "components/jucer_SliderHandler.h"
-#include "components/jucer_LabelHandler.h"
-#include "components/jucer_TextEditorHandler.h"
-#include "components/jucer_ComboBoxHandler.h"
-#include "components/jucer_GroupComponentHandler.h"
-#include "components/jucer_JucerComponentHandler.h"
-#include "components/jucer_HyperlinkButtonHandler.h"
-#include "components/jucer_ViewportHandler.h"
-#include "components/jucer_TabbedComponentHandler.h"
-#include "components/jucer_TreeViewHandler.h"
-#include "components/jucer_GenericComponentHandler.h"
-#include "components/jucer_ImageButtonHandler.h"
+#include "Components/jucer_ButtonHandler.h"
+#include "Components/jucer_TextButtonHandler.h"
+#include "Components/jucer_ToggleButtonHandler.h"
+#include "Components/jucer_SliderHandler.h"
+#include "Components/jucer_LabelHandler.h"
+#include "Components/jucer_TextEditorHandler.h"
+#include "Components/jucer_ComboBoxHandler.h"
+#include "Components/jucer_GroupComponentHandler.h"
+#include "Components/jucer_JucerComponentHandler.h"
+#include "Components/jucer_HyperlinkButtonHandler.h"
+#include "Components/jucer_ViewportHandler.h"
+#include "Components/jucer_TabbedComponentHandler.h"
+#include "Components/jucer_TreeViewHandler.h"
+#include "Components/jucer_GenericComponentHandler.h"
+#include "Components/jucer_ImageButtonHandler.h"
 
 namespace ObjectTypes
 {
@@ -106,15 +106,15 @@ PaintElement* createElementForXml (const XmlElement* const e, PaintRoutine* cons
 {
     jassert (e != nullptr);
 
-    ScopedPointer<PaintElement> pe;
+    std::unique_ptr<PaintElement> pe;
 
-    if (e->hasTagName (PaintElementRectangle::getTagName()))                pe = new PaintElementRectangle (owner);
-    else if (e->hasTagName (PaintElementRoundedRectangle::getTagName()))    pe = new PaintElementRoundedRectangle (owner);
-    else if (e->hasTagName (PaintElementEllipse::getTagName()))             pe = new PaintElementEllipse (owner);
-    else if (e->hasTagName (PaintElementImage::getTagName()))               pe = new PaintElementImage (owner);
-    else if (e->hasTagName (PaintElementPath::getTagName()))                pe = new PaintElementPath (owner);
-    else if (e->hasTagName (PaintElementText::getTagName()))                pe = new PaintElementText (owner);
-    else if (e->hasTagName (PaintElementGroup::getTagName()))               pe = new PaintElementGroup (owner);
+    if (e->hasTagName (PaintElementRectangle::getTagName()))                pe.reset (new PaintElementRectangle (owner));
+    else if (e->hasTagName (PaintElementRoundedRectangle::getTagName()))    pe.reset (new PaintElementRoundedRectangle (owner));
+    else if (e->hasTagName (PaintElementEllipse::getTagName()))             pe.reset (new PaintElementEllipse (owner));
+    else if (e->hasTagName (PaintElementImage::getTagName()))               pe.reset (new PaintElementImage (owner));
+    else if (e->hasTagName (PaintElementPath::getTagName()))                pe.reset (new PaintElementPath (owner));
+    else if (e->hasTagName (PaintElementText::getTagName()))                pe.reset (new PaintElementText (owner));
+    else if (e->hasTagName (PaintElementGroup::getTagName()))               pe.reset (new PaintElementGroup (owner));
 
     if (pe != nullptr && pe->loadFromXml (*e))
         return pe.release();

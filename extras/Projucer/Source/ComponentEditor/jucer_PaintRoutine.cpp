@@ -24,15 +24,15 @@
   ==============================================================================
 */
 
-#include "../jucer_Headers.h"
+#include "../Application/jucer_Headers.h"
 #include "jucer_PaintRoutine.h"
 #include "jucer_JucerDocument.h"
 #include "jucer_ObjectTypes.h"
-#include "paintelements/jucer_PaintElementUndoableAction.h"
-#include "paintelements/jucer_PaintElementPath.h"
-#include "paintelements/jucer_PaintElementImage.h"
-#include "paintelements/jucer_PaintElementGroup.h"
-#include "ui/jucer_JucerDocumentEditor.h"
+#include "PaintElements/jucer_PaintElementUndoableAction.h"
+#include "PaintElements/jucer_PaintElementPath.h"
+#include "PaintElements/jucer_PaintElementImage.h"
+#include "PaintElements/jucer_PaintElementGroup.h"
+#include "UI/jucer_JucerDocumentEditor.h"
 #include "../Application/jucer_Application.h"
 
 //==============================================================================
@@ -61,7 +61,7 @@ bool PaintRoutine::perform (UndoableAction* action, const String& actionName)
     if (document != nullptr)
         return document->getUndoManager().perform (action, actionName);
 
-    ScopedPointer<UndoableAction> deleter (action);
+    std::unique_ptr<UndoableAction> deleter (action);
     action->perform();
     return false;
 }
@@ -114,7 +114,7 @@ public:
 
 private:
     PaintRoutine& routine;
-    ScopedPointer<XmlElement> xml;
+    std::unique_ptr<XmlElement> xml;
 
     void showCorrectTab() const
     {
@@ -152,8 +152,8 @@ PaintElement* PaintRoutine::addNewElement (PaintElement* e, const int index, con
 {
     if (e != nullptr)
     {
-        ScopedPointer<PaintElement> deleter (e);
-        ScopedPointer<XmlElement> xml (e->createXml());
+        std::unique_ptr<PaintElement> deleter (e);
+        std::unique_ptr<XmlElement> xml (e->createXml());
 
         e = addElementFromXml (*xml, index, undoable);
     }
@@ -169,7 +169,7 @@ public:
         : PaintElementUndoableAction <PaintElement> (element),
           oldIndex (-1)
     {
-        xml = element->createXml();
+        xml.reset (element->createXml());
         oldIndex = routine.indexOfElement (element);
     }
 
@@ -190,7 +190,7 @@ public:
     int getSizeInUnits()    { return 10; }
 
 private:
-    ScopedPointer<XmlElement> xml;
+    std::unique_ptr<XmlElement> xml;
     int oldIndex;
 };
 
@@ -303,7 +303,7 @@ void PaintRoutine::copySelectedToClipboard()
 void PaintRoutine::paste()
 {
     XmlDocument clip (SystemClipboard::getTextFromClipboard());
-    ScopedPointer<XmlElement> doc (clip.getDocumentElement());
+    std::unique_ptr<XmlElement> doc (clip.getDocumentElement());
 
     if (doc != nullptr && doc->hasTagName (clipboardXmlTag))
     {
@@ -374,6 +374,68 @@ void PaintRoutine::selectedToBack()
 
     for (int i = 0; i < temp.getNumSelected(); ++i)
         elementToBack (temp.getSelectedItem(i), true);
+}
+
+void PaintRoutine::alignTop()
+{
+    if (selectedElements.getNumSelected() > 1)
+    {
+        auto* main = selectedElements.getSelectedItem (0);
+        auto yPos = main->getY();
+
+        for (auto* other : selectedElements)
+        {
+            if (other != main)
+                other->setPaintElementBoundsAndProperties (other, other->getBounds().withPosition (other->getX(),
+                                                                                                   yPos), main, true);
+        }
+    }
+}
+void PaintRoutine::alignRight()
+{
+    if (selectedElements.getNumSelected() > 1)
+    {
+        auto* main = selectedElements.getSelectedItem (0);
+        auto rightPos = main->getRight();
+
+        for (auto* other : selectedElements)
+        {
+            if (other != main)
+                other->setPaintElementBoundsAndProperties (other, other->getBounds().withPosition (rightPos - other->getWidth(),
+                                                                                                   other->getY()), main, true);
+        }
+    }
+}
+
+void PaintRoutine::alignBottom()
+{
+    if (selectedElements.getNumSelected() > 1)
+    {
+        auto* main = selectedElements.getSelectedItem (0);
+        auto bottomPos = main->getBottom();
+
+        for (auto* other : selectedElements)
+        {
+            if (other != main)
+                other->setPaintElementBoundsAndProperties (other, other->getBounds().withPosition (other->getX(),
+                                                                                                   bottomPos - other->getHeight()), main, true);
+        }
+    }
+}
+void PaintRoutine::alignLeft()
+{
+    if (selectedElements.getNumSelected() > 1)
+    {
+        auto* main = selectedElements.getSelectedItem (0);
+        auto xPos = main->getX();
+
+        for (auto* other : selectedElements)
+        {
+            if (other != main)
+                other->setPaintElementBoundsAndProperties (other, other->getBounds().withPosition (xPos,
+                                                                                                   other->getY()), main, true);
+        }
+    }
 }
 
 void PaintRoutine::groupSelected()
@@ -463,8 +525,9 @@ void PaintRoutine::fillWithBackground (Graphics& g, const bool drawOpaqueBackgro
 {
     if ((! backgroundColour.isOpaque()) && drawOpaqueBackground)
     {
-        g.fillCheckerBoard (Rectangle<int> (0, 0, g.getClipBounds().getRight(), g.getClipBounds().getBottom()),
-                            50, 50,
+        g.fillCheckerBoard (Rectangle<float> ((float) g.getClipBounds().getRight(),
+                                              (float) g.getClipBounds().getBottom()),
+                            50.0f, 50.0f,
                             Colour (0xffdddddd).overlaidWith (backgroundColour),
                             Colour (0xffffffff).overlaidWith (backgroundColour));
     }
@@ -486,12 +549,12 @@ void PaintRoutine::drawElements (Graphics& g, const Rectangle<int>& relativeTo)
 //==============================================================================
 void PaintRoutine::dropImageAt (const File& f, int x, int y)
 {
-    ScopedPointer<Drawable> d (Drawable::createFromImageFile (f));
+    std::unique_ptr<Drawable> d (Drawable::createFromImageFile (f));
 
     if (d != nullptr)
     {
         auto bounds = d->getDrawableBounds();
-        d = nullptr;
+        d.reset();
 
         auto* newElement = addNewElement (ObjectTypes::createNewImageElement (this), -1, true);
 

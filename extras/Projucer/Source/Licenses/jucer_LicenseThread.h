@@ -23,7 +23,9 @@
 
   ==============================================================================
 */
+
 #pragma once
+
 
 //==============================================================================
 struct NetWorkerThread   : public Thread,
@@ -163,16 +165,16 @@ struct LicenseThread : NetWorkerThread
         jassert (stateToUpdate.authToken.isNotEmpty());
 
         auto accessTokenHeader = "x-access-token: " + stateToUpdate.authToken;
+        std::unique_ptr<WebInputStream> shared (getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user"), false));
 
-        if (ScopedPointer<WebInputStream> shared
-              = getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user"), false))
+        if (shared != nullptr)
         {
             const int statusCode = shared->withExtraHeaders (accessTokenHeader).getStatusCode();
 
             if (statusCode == 200)
             {
                 var result = JSON::parse (shared->readEntireStreamAsString());
-                shared = nullptr;
+                shared.reset();
 
                 auto newState = licenseStateFromJSON (result, stateToUpdate.authToken, stateToUpdate.avatar);
 
@@ -213,14 +215,14 @@ struct LicenseThread : NetWorkerThread
 
             if (! selectNewLicense)
             {
-                ScopedPointer<WebInputStream> shared = getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user/licences?search_internal_id=com.roli.projucer&version=5"),
-                                                                                false);
+                std::unique_ptr<WebInputStream> shared (getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user/licences?search_internal_id=com.roli.projucer&version=5"),
+                                                                                 false));
                 if (shared == nullptr)
                     break;
 
                 var json = JSON::parse (shared->withExtraHeaders (accessTokenHeader)
                                           .readEntireStreamAsString());
-                shared = nullptr;
+                shared.reset();
 
                 if (auto* jsonLicenses = json.getArray())
                 {
@@ -272,8 +274,8 @@ struct LicenseThread : NetWorkerThread
 
                 String postData (JSON::toString (var (redeamObject.get())));
 
-                ScopedPointer<WebInputStream> shared = getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user/products").withPOSTData (postData),
-                                                                                true);
+                std::unique_ptr<WebInputStream> shared (getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user/products").withPOSTData (postData),
+                                                                                 true));
                 if (shared == nullptr)
                     break;
 
@@ -304,8 +306,9 @@ struct LicenseThread : NetWorkerThread
                 jsonLicenseRequest->setProperty (licenseTypeIdentifier, "software");
 
                 String postData (JSON::toString (var (jsonLicenseRequest.get())));
-                ScopedPointer<WebInputStream> shared
-                    = getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user/products/redeem").withPOSTData (postData), true);
+                std::unique_ptr<WebInputStream> shared (getSharedWebInputStream (URL ("https://api.roli.com/api/v1/user/products/redeem")
+                                                                                     .withPOSTData (postData),
+                                                                                 true));
 
                 if (shared != nullptr)
                 {
@@ -388,7 +391,9 @@ struct LicenseThread : NetWorkerThread
 
             if (avatarURL.isNotEmpty())
             {
-                if (ScopedPointer<WebInputStream> shared = getSharedWebInputStream (URL (avatarURL), false))
+                std::unique_ptr<WebInputStream> shared (getSharedWebInputStream (URL (avatarURL), false));
+
+                if (shared != nullptr)
                 {
                     MemoryBlock mb;
                     shared->readIntoMemoryBlock (mb);
@@ -450,7 +455,7 @@ struct LicenseThread : NetWorkerThread
         if (owner.state.avatar.isValid() != newState.avatar.isValid())         { changed = true; }
 
         if (changed)
-            executeOnMessageThreadAndBlock ([this, updatedState]() { owner.updateState (updatedState); });
+            executeOnMessageThreadAndBlock ([this, updatedState] { owner.updateState (updatedState); });
     }
 
     //==============================================================================

@@ -22,6 +22,9 @@
   ==============================================================================
 */
 
+namespace juce
+{
+
 #if JUCE_MAC || JUCE_IOS || JUCE_MSVC
 
 #if JUCE_MAC || JUCE_IOS
@@ -33,24 +36,24 @@
 //==============================================================================
 VideoComponent::VideoComponent()  : pimpl (new Pimpl())
 {
-    addAndMakeVisible (pimpl);
+    addAndMakeVisible (pimpl.get());
 }
 
 VideoComponent::~VideoComponent()
 {
-    pimpl = nullptr;
+    pimpl.reset();
 }
 
 Result VideoComponent::load (const File& file)
 {
-    Result r = pimpl->load (file);
+    auto r = pimpl->load (file);
     resized();
     return r;
 }
 
 Result VideoComponent::load (const URL& url)
 {
-    Result r = pimpl->load (url);
+    auto r = pimpl->load (url);
     resized();
     return r;
 }
@@ -83,11 +86,11 @@ float VideoComponent::getAudioVolume() const                { return pimpl->getV
 
 void VideoComponent::resized()
 {
-    Rectangle<int> r = getLocalBounds();
+    auto r = getLocalBounds();
 
     if (isVideoOpen() && ! r.isEmpty())
     {
-        Rectangle<int> nativeSize = getVideoNativeSize();
+        auto nativeSize = getVideoNativeSize();
 
         if (nativeSize.isEmpty())
         {
@@ -116,3 +119,5 @@ void VideoComponent::timerCallback()
 }
 
 #endif
+
+} // namespace juce

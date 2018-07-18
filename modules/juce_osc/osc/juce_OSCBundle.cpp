@@ -24,6 +24,9 @@
   ==============================================================================
 */
 
+namespace juce
+{
+
 OSCBundle::OSCBundle()
 {
 }
@@ -55,9 +58,9 @@ OSCBundle::Element::Element (const Element& other)
         bundle = nullptr;
 
         if (other.isMessage())
-            message = new OSCMessage (other.getMessage());
+            message.reset (new OSCMessage (other.getMessage()));
         else
-            bundle = new OSCBundle (other.getBundle());
+            bundle.reset (new OSCBundle (other.getBundle()));
     }
 }
 
@@ -192,15 +195,15 @@ private:
         expect (! bundle[1].isBundle());
 
         int numElementsCounted = 0;
-        for (OSCBundle::Element* element = bundle.begin(); element != bundle.end(); ++element)
+        for (auto& element : bundle)
         {
-            expect (element->isMessage());
-            expect (! element->isBundle());
+            expect (element.isMessage());
+            expect (! element.isBundle());
             ++numElementsCounted;
         }
         expectEquals (numElementsCounted, 2);
 
-        OSCBundle::Element* e = bundle.begin();
+        auto* e = bundle.begin();
         expect (e[0].getMessage().size() == 1);
         expect (e[0].getMessage().begin()->getInt32() == testInt);
         expect (e[1].getMessage().size() == 2);
@@ -237,3 +240,5 @@ public:
 static OSCBundleElementTests OSCBundleElementUnitTests;
 
 #endif // JUCE_UNIT_TESTS
+
+} // namespace juce

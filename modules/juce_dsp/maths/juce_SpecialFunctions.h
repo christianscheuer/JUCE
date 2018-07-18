@@ -24,9 +24,15 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 /**
     Contains miscellaneous filter design and windowing functions.
+
+    @tags{DSP}
 */
 struct SpecialFunctions
 {
@@ -57,3 +63,6 @@ struct SpecialFunctions
     */
     static Complex<double> asne (Complex<double> w, double k) noexcept;
 };
+
+} // namespace dsp
+} // namespace juce

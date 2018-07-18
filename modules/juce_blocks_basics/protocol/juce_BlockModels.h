@@ -20,10 +20,15 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace BlocksProtocol
+{
+
+#ifndef DOXYGEN
 
 // This file isn't part of the public API, it's where we encode the knowledge base
 // of all the different types of block we know about..
-
 struct BlockDataSheet
 {
     BlockDataSheet (const BlocksProtocol::BlockSerialNumber& serial)  : serialNumber (serial)
@@ -312,3 +317,8 @@ static const char* getButtonNameForFunction (ControlButton::ButtonFunction fn) n
     jassertfalse;
     return nullptr;
 }
+
+#endif
+
+} // namespace BlocksProtocol
+} // namespace juce

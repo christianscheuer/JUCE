@@ -24,9 +24,15 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 /**
     A class representing a polynomial
+
+    @tags{DSP}
 */
 template <typename FloatingType>
 class Polynomial
@@ -65,17 +71,15 @@ public:
     /** Creates a copy of another polynomial. */
     Polynomial& operator= (Polynomial&&) = default;
 
-   #if JUCE_COMPILER_SUPPORTS_INITIALIZER_LISTS || defined(DOXYGEN)
     /** Creates a new polynomial with coefficients by a C++11 initializer list.
         This function can be used in the following way:
         Polynomial<float> p ({0.5f, -0.3f, 0.2f});
     */
-    template <typename TypeToCreateFrom>
-    Polynomial (const std::initializer_list<TypeToCreateFrom>& items)  : coeffs (items)
+    template <typename... Values>
+    Polynomial (Values... items)  : coeffs (items...)
     {
         jassert (! coeffs.isEmpty());
     }
-   #endif
 
     //==============================================================================
     /** Returns a single coefficient of the receiver for reading */
@@ -88,7 +92,7 @@ public:
     FloatingType operator() (FloatingType x) const noexcept
     {
         // Horner's method
-        FloatingType y = 0;
+        FloatingType y (0);
 
         for (int i = coeffs.size(); --i >= 0;)
             y = (x * y) + coeffs.getUnchecked(i);
@@ -142,7 +146,7 @@ public:
 
         for (int i = 0; i < N; ++i)
         {
-            FloatingType value = {};
+            FloatingType value (0);
 
             for (int j = 0; j < Nmax; ++j)
                 if (j >= 0 && j < N1 && i - j >= 0 && i - j < N2)
@@ -160,3 +164,6 @@ private:
 
     JUCE_LEAK_DETECTOR (Polynomial)
 };
+
+} // namespace dsp
+} // namespace juce

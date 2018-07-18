@@ -26,6 +26,8 @@
 
 #pragma once
 
+
+//==============================================================================
 inline String quotedString (const String& s, bool wrapInTransMacro)
 {
     const int embeddedIndex = s.indexOfIgnoreCase ("%%");
@@ -88,7 +90,8 @@ inline void drawResizableBorder (Graphics& g, int w, int h,
                                  const bool isMouseOver,
                                  Colour borderColour)
 {
-    g.setColour (borderColour.withAlpha (isMouseOver ? 0.6f : 0.5f));
+    ignoreUnused (isMouseOver);
+    g.setColour (borderColour);
 
     g.fillRect (0, 0, w, borderSize.getTop());
     g.fillRect (0, 0, borderSize.getLeft(), h);

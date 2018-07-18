@@ -28,7 +28,6 @@
 
 class JucerDocument;
 
-
 //==============================================================================
 /**
     Manages a list of binary data objects that a JucerDocument wants to embed in
@@ -51,7 +50,7 @@ public:
         String name;
         String originalFilename;
         MemoryBlock data;
-        ScopedPointer<Drawable> drawable;
+        std::unique_ptr<Drawable> drawable;
     };
 
     void clear();

@@ -24,19 +24,20 @@
   ==============================================================================
 */
 
-#include "../jucer_Headers.h"
-#include "../Project/jucer_Project.h"
+#include "jucer_Headers.h"
 #include "../Project/jucer_Module.h"
-#include "../Utility/jucer_TranslationHelpers.h"
+#include "../Utility/Helpers/jucer_TranslationHelpers.h"
+#include "../Utility/PIPs/jucer_PIPGenerator.h"
 
 #include "jucer_CommandLine.h"
 
+//==============================================================================
+const char* preferredLinefeed = "\r\n";
+const char* getPreferredLinefeed()     { return preferredLinefeed; }
 
 //==============================================================================
 namespace
 {
-    static const char* getLineEnding()  { return "\r\n"; }
-
     struct CommandLineError
     {
         CommandLineError (const String& s) : message (s) {}
@@ -62,6 +63,20 @@ namespace
     {
         if (args.size() < minNumArgs)
             throw CommandLineError ("Not enough arguments!");
+    }
+
+    static bool findArgument (StringArray& args, const String& target)
+    {
+        for (int i = 0; i < args.size(); ++i)
+        {
+            if (args[i].trim() == target)
+            {
+                args.remove (i);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static File getFile (const String& filename)
@@ -93,19 +108,11 @@ namespace
     {
         Array<File> files;
 
-        for (DirectoryIterator di (folder, true, "*.cpp;*.cxx;*.cc;*.c;*.h;*.hpp;*.hxx;*.hpp;*.mm;*.m", File::findFiles); di.next();)
+        for (DirectoryIterator di (folder, true, "*.cpp;*.cxx;*.cc;*.c;*.h;*.hpp;*.hxx;*.hpp;*.mm;*.m;*.java;*.dox;", File::findFiles); di.next();)
             if (! di.getFile().isSymbolicLink())
                 files.add (di.getFile());
 
         return files;
-    }
-
-    static String joinLinesIntoSourceFile (StringArray& lines)
-    {
-        while (lines.size() > 10 && lines [lines.size() - 1].isEmpty())
-            lines.remove (lines.size() - 1);
-
-        return lines.joinIntoString (getLineEnding()) + getLineEnding();
     }
 
     static void replaceFile (const File& file, const String& newText, const String& message)
@@ -114,7 +121,7 @@ namespace
 
         TemporaryFile temp (file);
 
-        if (! temp.getFile().replaceWithText (newText, false, false))
+        if (! temp.getFile().replaceWithText (newText, false, false, nullptr))
             throw CommandLineError ("!!! ERROR Couldn't write to temp file!");
 
         if (! temp.overwriteTargetFileWithTemporary())
@@ -128,16 +135,16 @@ namespace
         {
             hideDockIcon();
 
-            File projectFile = getFileCheckingForExistence (fileToLoad);
+            auto projectFile = getFileCheckingForExistence (fileToLoad);
 
             if (! projectFile.hasFileExtension (Project::projectFileExtension))
                 throw CommandLineError (projectFile.getFullPathName() + " isn't a valid jucer project file!");
 
-            project = new Project (projectFile);
+            project.reset (new Project (projectFile));
 
             if (! project->loadFrom (projectFile, true))
             {
-                project = nullptr;
+                project.reset();
                 throw CommandLineError ("Failed to load the project file: " + projectFile.getFullPathName());
             }
         }
@@ -146,17 +153,17 @@ namespace
         {
             if (project != nullptr)
             {
-                Result error (justSaveResources ? project->saveResourcesOnly (project->getFile())
-                                                : project->saveProject (project->getFile(), true));
+                auto error = justSaveResources ? project->saveResourcesOnly (project->getFile())
+                                               : project->saveProject (project->getFile(), true);
 
-                project = nullptr;
+                project.reset();
 
                 if (error.failed())
                     throw CommandLineError ("Error when saving: " + error.getErrorMessage());
             }
         }
 
-        ScopedPointer<Project> project;
+        std::unique_ptr<Project> project;
     };
 
     //==============================================================================
@@ -194,7 +201,7 @@ namespace
 
         std::cout << "Setting project version: " << version << std::endl;
 
-        proj.project->getVersionValue() = version;
+        proj.project->setProjectVersion (version);
         proj.save (false);
     }
 
@@ -211,7 +218,7 @@ namespace
 
         std::cout << "Bumping project version to: " << version << std::endl;
 
-        proj.project->getVersionValue() = version;
+        proj.project->setProjectVersion (version);
         proj.save (false);
     }
 
@@ -220,7 +227,7 @@ namespace
         checkArgumentCount (args, 2);
         LoadedProject proj (args[1]);
 
-        String version (proj.project->getVersionValue().toString());
+        String version (proj.project->getVersionString());
 
         if (version.trim().isEmpty())
             throw CommandLineError ("Cannot read version number from project!");
@@ -255,8 +262,8 @@ namespace
         LoadedProject proj (args[1]);
 
         std::cout << "Project file: " << proj.project->getFile().getFullPathName() << std::endl
-                  << "Name: " << proj.project->getTitle() << std::endl
-                  << "UID: " << proj.project->getProjectUID() << std::endl;
+                  << "Name: " << proj.project->getProjectNameString() << std::endl
+                  << "UID: " << proj.project->getProjectUIDString() << std::endl;
 
         EnabledModuleList& modules = proj.project->getModules();
 
@@ -300,10 +307,10 @@ namespace
         std::cout << "Writing: " << targetFile.getFullPathName() << std::endl;
 
         TemporaryFile temp (targetFile);
-        ScopedPointer<FileOutputStream> out (temp.getFile().createOutputStream());
+        std::unique_ptr<FileOutputStream> out (temp.getFile().createOutputStream());
 
         bool ok = out != nullptr && zip.writeToStream (*out, nullptr);
-        out = nullptr;
+        out.reset();
         ok = ok && temp.overwriteTargetFileWithTemporary();
 
         if (! ok)
@@ -361,7 +368,7 @@ namespace
 
     static void cleanWhitespace (const File& file, CleanupOptions options)
     {
-        const String content (file.loadFileAsString());
+        auto content = file.loadFileAsString();
 
         if (content.contains ("%""%") && content.contains ("//["))
             return; // ignore projucer GUI template files
@@ -372,7 +379,7 @@ namespace
 
         for (int i = 0; i < lines.size(); ++i)
         {
-            String& line = lines.getReference(i);
+            String& line = lines.getReference (i);
 
             if (options.removeTabs && line.containsChar ('\t'))
             {
@@ -381,6 +388,7 @@ namespace
                 for (;;)
                 {
                     const int tabPos = line.indexOfChar ('\t');
+
                     if (tabPos < 0)
                         break;
 
@@ -392,7 +400,7 @@ namespace
 
             if (options.fixDividerComments)
             {
-                String afterIndent (line.trim());
+                auto afterIndent = line.trim();
 
                 if (afterIndent.startsWith ("//") && afterIndent.length() > 20)
                 {
@@ -414,9 +422,9 @@ namespace
         if (options.removeTabs && ! anyTabsRemoved)
             return;
 
-        const String newText = joinLinesIntoSourceFile (lines);
+        auto newText = joinLinesIntoSourceFile (lines);
 
-        if (newText != content && newText != content + getLineEnding())
+        if (newText != content && newText != content + getPreferredLinefeed())
             replaceFile (file, newText, options.removeTabs ? "Removing tabs in: "
                                                            : "Cleaning file: ");
     }
@@ -427,7 +435,7 @@ namespace
 
         for (auto it = args.begin() + 1; it < args.end(); ++it)
         {
-            const File target (getFileCheckingForExistence (*it));
+            auto target = getFileCheckingForExistence (*it);
 
             Array<File> files;
 
@@ -480,29 +488,28 @@ namespace
         lines.addLines (content);
         bool hasChanged = false;
 
-        for (int i = 0; i < lines.size(); ++i)
+        for (auto& line : lines)
         {
-            String line = lines[i];
-
             if (line.trimStart().startsWith ("#include \""))
             {
-                const String includedFile (line.fromFirstOccurrenceOf ("\"", true, false)
-                                               .upToLastOccurrenceOf ("\"", true, false)
-                                               .trim()
-                                               .unquoted());
+                auto includedFile = line.fromFirstOccurrenceOf ("\"", true, false)
+                                        .upToLastOccurrenceOf ("\"", true, false)
+                                        .trim()
+                                        .unquoted();
 
-                const File target (file.getSiblingFile (includedFile));
+                auto target = file.getSiblingFile (includedFile);
 
                 if (! target.exists())
                 {
-                    File header = findSimilarlyNamedHeader (allFiles, target.getFileName(), file);
+                    auto header = findSimilarlyNamedHeader (allFiles, target.getFileName(), file);
 
                     if (header.exists())
                     {
-                        lines.set (i, line.upToFirstOccurrenceOf ("#include \"", true, false)
-                                        + header.getRelativePathFrom (file.getParentDirectory())
-                                            .replaceCharacter ('\\', '/')
-                                        + "\"");
+                        line = line.upToFirstOccurrenceOf ("#include \"", true, false)
+                                  + header.getRelativePathFrom (file.getParentDirectory())
+                                          .replaceCharacter ('\\', '/')
+                                  + "\"";
+
                         hasChanged = true;
                     }
                 }
@@ -511,9 +518,9 @@ namespace
 
         if (hasChanged)
         {
-            const String newText = joinLinesIntoSourceFile (lines);
+            auto newText = joinLinesIntoSourceFile (lines);
 
-            if (newText != content && newText != content + getLineEnding())
+            if (newText != content && newText != content + getPreferredLinefeed())
                 replaceFile (file, newText, "Fixing includes in: ");
         }
     }
@@ -521,9 +528,8 @@ namespace
     static void fixRelativeIncludePaths (const StringArray& args)
     {
         checkArgumentCount (args, 2);
-        const File target (getDirectoryCheckingForExistence (args[1]));
-
-        Array<File> files = findAllSourceFiles (target);
+        auto target = getDirectoryCheckingForExistence (args[1]);
+        auto files = findAllSourceFiles (target);
 
         for (int i = 0; i < files.size(); ++i)
             fixIncludes (files.getReference(i), files);
@@ -546,7 +552,7 @@ namespace
     static void generateObfuscatedStringCode (const StringArray& args)
     {
         checkArgumentCount (args, 2);
-        const String originalText (args[1]);
+        const String originalText (args[1].unquoted());
 
         struct Section
         {
@@ -562,7 +568,7 @@ namespace
                 for (int i = 0; i < text.length(); ++i)
                     out << " << '" << String::charToString (text[i]) << "'";
 
-                out << ";" << newLine;
+                out << ";" << preferredLinefeed;
             }
         };
 
@@ -586,18 +592,18 @@ namespace
 
         MemoryOutputStream out;
 
-        out << "String createString()" << newLine
-            << "{" << newLine;
+        out << "String createString()" << preferredLinefeed
+            << "{" << preferredLinefeed;
 
         for (int i = 0; i < sections.size(); ++i)
             sections.getReference(i).writeGenerator (out);
 
-        out << newLine
-            << "    String result = " << getStringConcatenationExpression (rng, 0, sections.size()) << ";" << newLine
-            << newLine
-            << "    jassert (result == " << originalText.quoted() << ");" << newLine
-            << "    return result;" << newLine
-            << "}" << newLine;
+        out << preferredLinefeed
+            << "    String result = " << getStringConcatenationExpression (rng, 0, sections.size()) << ";" << preferredLinefeed
+            << preferredLinefeed
+            << "    jassert (result == " << originalText.quoted() << ");" << preferredLinefeed
+            << "    return result;" << preferredLinefeed
+            << "}" << preferredLinefeed;
 
         std::cout << out.toString() << std::endl;
     }
@@ -655,32 +661,32 @@ namespace
 
         MemoryOutputStream header, cpp;
 
-        header << "// Auto-generated binary data by the Projucer" << newLine
-               << "// Source file: " << source.getRelativePathFrom (target.getParentDirectory()) << newLine
-               << newLine;
+        header << "// Auto-generated binary data by the Projucer" << preferredLinefeed
+               << "// Source file: " << source.getRelativePathFrom (target.getParentDirectory()) << preferredLinefeed
+               << preferredLinefeed;
 
         cpp << header.toString();
 
         if (target.hasFileExtension (headerFileExtensions))
         {
-            header << "static constexpr unsigned char " << variableName << "[] =" << newLine
-                   << literal.toString() << newLine
-                   << newLine;
+            header << "static constexpr unsigned char " << variableName << "[] =" << preferredLinefeed
+                   << literal.toString() << preferredLinefeed
+                   << preferredLinefeed;
 
             replaceFile (target, header.toString(), "Writing: ");
         }
         else if (target.hasFileExtension (cppFileExtensions))
         {
-            header << "extern const char*  " << variableName << ";" << newLine
-                   << "const unsigned int  " << variableName << "Size = " << (int) dataSize << ";" << newLine
-                   << newLine;
+            header << "extern const char*  " << variableName << ";" << preferredLinefeed
+                   << "const unsigned int  " << variableName << "Size = " << (int) dataSize << ";" << preferredLinefeed
+                   << preferredLinefeed;
 
-            cpp << CodeHelpers::createIncludeStatement (target.withFileExtension (".h").getFileName()) << newLine
-                << newLine
-                << "static constexpr unsigned char " << variableName << "_local[] =" << newLine
-                << literal.toString() << newLine
-                << newLine
-                << "const char* " << variableName << " = (const char*) " << variableName << "_local;" << newLine;
+            cpp << CodeHelpers::createIncludeStatement (target.withFileExtension (".h").getFileName()) << preferredLinefeed
+                << preferredLinefeed
+                << "static constexpr unsigned char " << variableName << "_local[] =" << preferredLinefeed
+                << literal.toString() << preferredLinefeed
+                << preferredLinefeed
+                << "const char* " << variableName << " = (const char*) " << variableName << "_local;" << preferredLinefeed;
 
             replaceFile (target, cpp.toString(), "Writing: ");
             replaceFile (target.withFileExtension (".h"), header.toString(), "Writing: ");
@@ -692,11 +698,97 @@ namespace
     }
 
     //==============================================================================
+    static bool isThisOS (const String& os)
+    {
+        auto targetOS = TargetOS::unknown;
+
+        if      (os == "osx")        targetOS = TargetOS::osx;
+        else if (os == "windows")    targetOS = TargetOS::windows;
+        else if (os == "linux")      targetOS = TargetOS::linux;
+
+        if (targetOS == TargetOS::unknown)
+            throw CommandLineError ("You need to specify a valid OS! Use osx, windows or linux");
+
+        return targetOS == TargetOS::getThisOS();
+    }
+
+    static bool isValidPathIdentifier (const String& id, const String& os)
+    {
+        return id == "vst3Path" || (id == "aaxPath" && os != "linux") || (id == "rtasPath" && os != "linux")
+            || id == "androidSDKPath" || id == "androidNDKPath" || id == "defaultJuceModulePath" || id == "defaultUserModulePath";
+    }
+
+    static void setGlobalPath (const StringArray& args)
+    {
+        checkArgumentCount (args, 3);
+
+        if (! isValidPathIdentifier (args[2], args[1]))
+            throw CommandLineError ("Identifier " + args[2] + " is not valid for the OS " + args[1]);
+
+        auto userAppData = File::getSpecialLocation (File::userApplicationDataDirectory);
+
+       #if JUCE_MAC
+        userAppData = userAppData.getChildFile ("Application Support");
+       #endif
+
+        auto settingsFile = userAppData.getChildFile ("Projucer").getChildFile ("Projucer.settings");
+        std::unique_ptr<XmlElement> xml (XmlDocument::parse (settingsFile));
+        auto settingsTree = ValueTree::fromXml (*xml);
+
+        if (! settingsTree.isValid())
+            throw CommandLineError ("Settings file not valid!");
+
+        ValueTree childToSet;
+        if (isThisOS (args[1]))
+        {
+            childToSet = settingsTree.getChildWithProperty (Ids::name, "PROJECT_DEFAULT_SETTINGS")
+                                     .getChildWithName ("PROJECT_DEFAULT_SETTINGS");
+        }
+        else
+        {
+            childToSet = settingsTree.getChildWithProperty (Ids::name, "FALLBACK_PATHS")
+                                     .getChildWithName ("FALLBACK_PATHS")
+                                     .getChildWithName (args[1] + String ("Fallback"));
+        }
+
+        if (! childToSet.isValid())
+            throw CommandLineError ("Failed to set the requested setting!");
+
+        childToSet.setProperty (args[2], File::getCurrentWorkingDirectory().getChildFile (args[3]).getFullPathName(), nullptr);
+
+        settingsFile.replaceWithText (settingsTree.toXmlString());
+    }
+
+    static void createProjectFromPIP (const StringArray& args)
+    {
+        checkArgumentCount (args, 3);
+
+        auto pipFile = File::getCurrentWorkingDirectory().getChildFile (args[1].unquoted());
+        if (! pipFile.existsAsFile())
+            throw CommandLineError ("PIP file doesn't exist.");
+
+        auto outputDir = File::getCurrentWorkingDirectory().getChildFile (args[2].unquoted());
+        if (! outputDir.exists())
+        {
+            auto res = outputDir.createDirectory();
+            std::cout << "Creating directory " << outputDir.getFullPathName() << std::endl;
+        }
+
+        PIPGenerator generator (pipFile, outputDir);
+
+        if (! generator.createJucerFile())
+            throw CommandLineError ("Failed to create .jucer file in " + outputDir.getFullPathName()+ ".");
+
+        if (! generator.createMainCpp())
+            throw CommandLineError ("Failed to create Main.cpp.");
+    }
+
+    //==============================================================================
     static void showHelp()
     {
         hideDockIcon();
 
-        const String appName (JUCEApplication::getInstance()->getApplicationName());
+        auto appName = JUCEApplication::getInstance()->getApplicationName();
 
         std::cout << appName << std::endl
                   << std::endl
@@ -752,6 +844,15 @@ namespace
                   << std::endl
                   << " " << appName << " --trans-finish pre_translated_file post_translated_file optional_existing_translation_file" << std::endl
                   << "    Creates a completed translations mapping file, that can be used to initialise a LocalisedStrings object. This allows you to localise the strings in your project" << std::endl
+                  << std::endl
+                  << " " << appName << " --set-global-search-path os identifier_to_set new_path" << std::endl
+                  << "    Sets the global path for a specified os and identifier. The os should be either osx, windows or linux and the identifiers can be any of the following: "
+                  << "defaultJuceModulePath, defaultUserModulePath, vst3path, aaxPath (not valid on linux), rtasPath (not valid on linux), androidSDKPath or androidNDKPath." << std::endl
+                  << std::endl
+                  << " " << appName << " --create-project-from-pip path/to/PIP path/to/output" << std::endl
+                  << "    Generates a JUCE project from a PIP file." << std::endl
+                  << std::endl
+                  << "Note that for any of the file-rewriting commands, add the option \"--lf\" if you want it to use LF linefeeds instead of CRLF" << std::endl
                   << std::endl;
     }
 }
@@ -763,29 +864,34 @@ int performCommandLine (const String& commandLine)
     args.addTokens (commandLine, true);
     args.trim();
 
+    if (findArgument (args, "--lf") || findArgument (args, "-lf"))
+       preferredLinefeed = "\n";
+
     String command (args[0]);
 
     try
     {
-        if (matchArgument (command, "help"))                     { showHelp(); return 0; }
-        if (matchArgument (command, "h"))                        { showHelp(); return 0; }
-        if (matchArgument (command, "resave"))                   { resaveProject (args, false); return 0; }
-        if (matchArgument (command, "resave-resources"))         { resaveProject (args, true); return 0; }
-        if (matchArgument (command, "get-version"))              { getVersion (args); return 0; }
-        if (matchArgument (command, "set-version"))              { setVersion (args); return 0; }
-        if (matchArgument (command, "bump-version"))             { bumpVersion (args); return 0; }
-        if (matchArgument (command, "git-tag-version"))          { gitTag (args); return 0; }
-        if (matchArgument (command, "buildmodule"))              { buildModules (args, false); return 0; }
-        if (matchArgument (command, "buildallmodules"))          { buildModules (args, true); return 0; }
-        if (matchArgument (command, "status"))                   { showStatus (args); return 0; }
-        if (matchArgument (command, "trim-whitespace"))          { cleanWhitespace (args, false); return 0; }
-        if (matchArgument (command, "remove-tabs"))              { cleanWhitespace (args, true); return 0; }
-        if (matchArgument (command, "tidy-divider-comments"))    { tidyDividerComments (args); return 0; }
-        if (matchArgument (command, "fix-broken-include-paths")) { fixRelativeIncludePaths (args); return 0; }
-        if (matchArgument (command, "obfuscated-string-code"))   { generateObfuscatedStringCode (args); return 0; }
-        if (matchArgument (command, "encode-binary"))            { encodeBinary (args); return 0; }
+        if (matchArgument (command, "help"))                     { showHelp();                            return 0; }
+        if (matchArgument (command, "h"))                        { showHelp();                            return 0; }
+        if (matchArgument (command, "resave"))                   { resaveProject (args, false);           return 0; }
+        if (matchArgument (command, "resave-resources"))         { resaveProject (args, true);            return 0; }
+        if (matchArgument (command, "get-version"))              { getVersion (args);                     return 0; }
+        if (matchArgument (command, "set-version"))              { setVersion (args);                     return 0; }
+        if (matchArgument (command, "bump-version"))             { bumpVersion (args);                    return 0; }
+        if (matchArgument (command, "git-tag-version"))          { gitTag (args);                         return 0; }
+        if (matchArgument (command, "buildmodule"))              { buildModules (args, false);            return 0; }
+        if (matchArgument (command, "buildallmodules"))          { buildModules (args, true);             return 0; }
+        if (matchArgument (command, "status"))                   { showStatus (args);                     return 0; }
+        if (matchArgument (command, "trim-whitespace"))          { cleanWhitespace (args, false);         return 0; }
+        if (matchArgument (command, "remove-tabs"))              { cleanWhitespace (args, true);          return 0; }
+        if (matchArgument (command, "tidy-divider-comments"))    { tidyDividerComments (args);            return 0; }
+        if (matchArgument (command, "fix-broken-include-paths")) { fixRelativeIncludePaths (args);        return 0; }
+        if (matchArgument (command, "obfuscated-string-code"))   { generateObfuscatedStringCode (args);   return 0; }
+        if (matchArgument (command, "encode-binary"))            { encodeBinary (args);                   return 0; }
         if (matchArgument (command, "trans"))                    { scanFoldersForTranslationFiles (args); return 0; }
-        if (matchArgument (command, "trans-finish"))             { createFinishedTranslationFile (args); return 0; }
+        if (matchArgument (command, "trans-finish"))             { createFinishedTranslationFile (args);  return 0; }
+        if (matchArgument (command, "set-global-search-path"))   { setGlobalPath (args);                  return 0; }
+        if (matchArgument (command, "create-project-from-pip"))  { createProjectFromPIP (args);           return 0; }
     }
     catch (const CommandLineError& error)
     {

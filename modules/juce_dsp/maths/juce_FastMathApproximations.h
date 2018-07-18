@@ -24,9 +24,15 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 /**
     This class contains various fast mathematical function approximations.
+
+    @tags{DSP}
 */
 struct FastMathApproximations
 {
@@ -254,3 +260,6 @@ struct FastMathApproximations
             values[i] = FastMathApproximations::logNPlusOne (values[i]);
     }
 };
+
+} // namespace dsp
+} // namespace juce

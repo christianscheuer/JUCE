@@ -24,6 +24,10 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 /**
     Acts as a polymorphic base class for processors.
@@ -31,6 +35,8 @@
     methods, so that you can use the ProcessorWrapper class to wrap an instance of
     a subclass, and then pass that around using ProcessorBase as a base class.
     @see ProcessorWrapper
+
+    @tags{DSP}
 */
 struct ProcessorBase
 {
@@ -48,6 +54,8 @@ struct ProcessorBase
     Wraps an instance of a given processor class, and exposes it through the
     ProcessorBase interface.
     @see ProcessorBase
+
+    @tags{DSP}
 */
 template <typename ProcessorType>
 struct ProcessorWrapper  : public ProcessorBase
@@ -69,3 +77,6 @@ struct ProcessorWrapper  : public ProcessorBase
 
     ProcessorType processor;
 };
+
+} // namespace dsp
+} // namespace juce

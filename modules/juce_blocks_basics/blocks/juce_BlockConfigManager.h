@@ -28,13 +28,18 @@
   ==============================================================================
 */
 
-#pragma once
+namespace juce
+{
 
 // This file provides interfaces for managing the internal configuration of Blocks
 // and synchronises with the connected Block
 
 using namespace BlocksProtocol;
 
+/** Manages the configuration of blocks
+
+    @tags{Blocks}
+*/
 struct BlockConfigManager
 {
     void setDeviceIndex (TopologyIndex newDeviceIndex)                       { deviceIndex = newDeviceIndex; }
@@ -49,8 +54,9 @@ struct BlockConfigManager
         options
     };
 
-    static constexpr uint32 numConfigItems = 59;
+    static constexpr uint32 numConfigItems = 61;
 
+    /** Structure describing a configuration */
     struct ConfigDescription
     {
         ConfigItemId item;
@@ -92,6 +98,7 @@ struct BlockConfigManager
         { fixedVelocityValue,   127,    1,      127,    false,  "Fixed Velocity Value", ConfigType::integer,    {},               "5D Touch" },
         { pianoMode,            0,      0,      1,      false,  "Piano Mode",           ConfigType::boolean,    {},               "Play mode" },
         { glideLock,            0,      0,      127,    false,  "Glide Rate",           ConfigType::integer,    {},               "Play mode" },
+        { glideLockEnable,      0,      0,      1,      false,  "Glide Lock Enable",    ConfigType::boolean,    {},               "Play mode" },
         { mode,                 4,      1,      5,      false,  "Mode",                 ConfigType::integer,    {},               "Play mode" },
         { volume,               100,    0,      127,    false,  "Volume",               ConfigType::integer,    {},               "Play mode" },
         { scale,                0,      0,      18,     false,  "Scale",                ConfigType::integer,    {},               "Play mode" }, // NOTE: Should be options
@@ -115,6 +122,9 @@ struct BlockConfigManager
                                                                                                                   "Lowest",
                                                                                                                   "Disabled",
                                                                                                                   "Hardest" },    "Play mode" },
+
+        { gammaCorrection,      0,      0,      1,      false,  "Gamma Correction",     ConfigType::boolean,    {},               {} },
+
         // These can be defined for unique usage for a given Littlefoot script
         { user0,                0,    0,      127,      false,  {},                     ConfigType::integer,    {},               {} },
         { user1,                0,    0,      127,      false,  {},                     ConfigType::integer,    {},               {} },
@@ -251,8 +261,8 @@ struct BlockConfigManager
 
     void resetConfigListActiveStatus()
     {
-        for (uint32 i = 0; i < numConfigItems; ++i)
-            configList[i].isActive = false;
+        for (auto& i : configList)
+            i.isActive = false;
     }
 
     //==============================================================================
@@ -344,3 +354,5 @@ private:
     TopologyIndex deviceIndex;
     PhysicalTopologySource::DeviceConnection* deviceConnection;
 };
+
+} // namespace juce

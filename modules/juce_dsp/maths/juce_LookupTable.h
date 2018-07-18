@@ -24,6 +24,10 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 /**
     Class for efficiently approximating expensive arithmetic operations.
@@ -42,6 +46,8 @@
         auto outValue = lut[17];
 
     @see LookupTableTransform
+
+    @tags{DSP}
 */
 template <typename FloatType>
 class LookupTable
@@ -162,6 +168,8 @@ private:
     range, it will return either the first or the last recorded LookupTable value.
 
     @see LookupTable
+
+    @tags{DSP}
 */
 template <typename FloatType>
 class LookupTableTransform
@@ -319,3 +327,6 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LookupTableTransform)
 };
+
+} // namespace dsp
+} // namespace juce

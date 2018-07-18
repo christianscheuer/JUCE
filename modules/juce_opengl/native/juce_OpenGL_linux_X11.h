@@ -24,6 +24,9 @@
   ==============================================================================
 */
 
+namespace juce
+{
+
 extern XContext windowHandleXContext;
 
 //==============================================================================
@@ -139,12 +142,14 @@ public:
         XWindowSystem::getInstance()->displayUnref();
     }
 
-    void initialiseOnRenderThread (OpenGLContext& c)
+    bool initialiseOnRenderThread (OpenGLContext& c)
     {
         ScopedXLock xlock (display);
         renderContext = glXCreateContext (display, bestVisual, (GLXContext) contextToShareWith, GL_TRUE);
         c.makeActive();
         context = &c;
+
+        return true;
     }
 
     void shutdownOnRenderThread()
@@ -249,3 +254,5 @@ bool OpenGLHelpers::isContextActive()
 
     return false;
 }
+
+} // namespace juce

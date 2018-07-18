@@ -31,8 +31,8 @@ class ProjectExporter;
 class ProjectSaver;
 
 //==============================================================================
-bool isJuceModulesFolder (const File&);
-bool isJuceFolder (const File&);
+bool isJUCEModulesFolder (const File&);
+bool isJUCEFolder (const File&);
 
 //==============================================================================
 struct ModuleDescription
@@ -140,11 +140,12 @@ public:
 
     static File findGlobalModulesFolder();
     static File findDefaultModulesFolder (Project&);
-    static bool isJuceModule (const String& moduleID);
 
     bool isModuleEnabled (const String& moduleID) const;
 
-    Value shouldUseGlobalPath (const String& moduleID) const;
+    bool shouldUseGlobalPath (const String& moduleID) const;
+    Value getShouldUseGlobalPathValue (const String& moduleID) const;
+
     Value shouldShowAllModuleFilesInProject (const String& moduleID);
     Value shouldCopyModuleFilesLocally (const String& moduleID) const;
 
@@ -154,7 +155,7 @@ public:
     ModuleDescription getModuleInfo (const String& moduleID);
     File getModuleFolder (const String& moduleID);
 
-    void addModule (const File& moduleManifestFile, bool copyLocally, bool useGlobalPath);
+    void addModule (const File& moduleManifestFile, bool copyLocally, bool useGlobalPath, bool sendAnalyticsEvent);
     void addModuleInteractive (const String& moduleID);
     void addModuleFromUserSelectedFile();
     void addModuleOfferingToCopy (const File&, bool isFromUserSpecifiedFolder);
@@ -180,7 +181,6 @@ public:
 private:
     UndoManager* getUndoManager() const     { return project.getUndoManagerFor (state); }
 
-    static File getModuleFolderFromPathIfItExists (const String& path, const String& moduleID, const Project&);
     File findUserModuleFolder (const String& possiblePaths, const String& moduleID);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EnabledModuleList)

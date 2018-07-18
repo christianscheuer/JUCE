@@ -20,9 +20,13 @@
   ==============================================================================
 */
 
+namespace juce
+{
 
 /**
     A simple Program to set the colours of individual LEDs.
+
+    @tags{Blocks}
 */
 struct BitmapLEDProgram   : public Block::Program
 {
@@ -34,3 +38,5 @@ struct BitmapLEDProgram   : public Block::Program
 private:
     juce::String getLittleFootProgram() override;
 };
+
+} // namespace juce

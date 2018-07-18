@@ -23,8 +23,6 @@
 namespace littlefoot
 {
 
-using namespace juce;
-
 //==============================================================================
 /**
     This class manages the synchronisation of a remote block of heap memory used
@@ -32,6 +30,8 @@ using namespace juce;
 
     Data in the block can be changed by calling setByte, setBytes, setBits etc, and
     these changes will be flushed to the device when sendChanges is called.
+
+    @tags{Blocks}
 */
 template <typename ImplementationClass>
 struct LittleFootRemoteHeap

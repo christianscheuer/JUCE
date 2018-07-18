@@ -24,6 +24,10 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 template <typename NumericType>
 IIR::Coefficients<NumericType>::Coefficients()
@@ -33,19 +37,6 @@ IIR::Coefficients<NumericType>::Coefficients()
                       NumericType(),
                       NumericType() })
 {
-}
-
-template <typename NumericType>
-IIR::Coefficients<NumericType>::Coefficients (const Coefficients& other)
-    : coefficients (other.coefficients)
-{
-}
-
-template <typename NumericType>
-IIR::Coefficients<NumericType>& IIR::Coefficients<NumericType>::operator= (const Coefficients& other)
-{
-    coefficients = other.coefficients;
-    return *this;
 }
 
 template <typename NumericType>
@@ -327,6 +318,7 @@ typename IIR::Coefficients<NumericType>::Ptr IIR::Coefficients<NumericType>::mak
     jassert (sampleRate > 0);
     jassert (frequency > 0 && frequency <= static_cast<NumericType> (sampleRate * 0.5));
     jassert (Q > 0);
+    jassert (gainFactor > 0);
 
     auto A = jmax (static_cast<NumericType> (0.0), std::sqrt (gainFactor));
     auto omega = (2 * MathConstants<NumericType>::pi * jmax (frequency, static_cast<NumericType> (2.0))) / static_cast<NumericType> (sampleRate);
@@ -357,7 +349,7 @@ double IIR::Coefficients<NumericType>::getMagnitudeForFrequency (double frequenc
     jassert (frequency >= 0 && frequency <= sampleRate * 0.5);
 
     Complex<double> numerator = 0.0, denominator = 0.0, factor = 1.0;
-    Complex<double> jw = std::exp (-2.0 * double_Pi * frequency * j / sampleRate);
+    Complex<double> jw = std::exp (-MathConstants<double>::twoPi * frequency * j / sampleRate);
 
     for (size_t n = 0; n <= order; ++n)
     {
@@ -392,7 +384,7 @@ void IIR::Coefficients<NumericType>::getMagnitudeForFrequencyArray (const double
         jassert (frequencies[i] >= 0 && frequencies[i] <= sampleRate * 0.5);
 
         Complex<double> numerator = 0.0, denominator = 0.0, factor = 1.0;
-        Complex<double> jw = std::exp (-2.0 * double_Pi * frequencies[i] * j / sampleRate);
+        Complex<double> jw = std::exp (-MathConstants<double>::twoPi * frequencies[i] * j / sampleRate);
 
         for (size_t n = 0; n <= order; ++n)
         {
@@ -423,7 +415,7 @@ double IIR::Coefficients<NumericType>::getPhaseForFrequency (double frequency, d
     jassert (frequency >= 0 && frequency <= sampleRate * 0.5);
 
     Complex<double> numerator = 0.0, denominator = 0.0, factor = 1.0;
-    Complex<double> jw = std::exp (-2.0 * double_Pi * frequency * j / sampleRate);
+    Complex<double> jw = std::exp (-MathConstants<double>::twoPi * frequency * j / sampleRate);
 
     for (size_t n = 0; n <= order; ++n)
     {
@@ -447,6 +439,8 @@ template <typename NumericType>
 void IIR::Coefficients<NumericType>::getPhaseForFrequencyArray (double* frequencies, double* phases,
                                                                 size_t numSamples, double sampleRate) const noexcept
 {
+    jassert (sampleRate > 0);
+
     constexpr Complex<double> j (0, 1);
     const auto order = getFilterOrder();
     const auto* coefs = coefficients.begin();
@@ -459,7 +453,7 @@ void IIR::Coefficients<NumericType>::getPhaseForFrequencyArray (double* frequenc
         jassert (frequencies[i] >= 0 && frequencies[i] <= sampleRate * 0.5);
 
         Complex<double> numerator = 0.0, denominator = 0.0, factor = 1.0;
-        Complex<double> jw = std::exp (-2.0 * double_Pi * frequencies[i] * j * invSampleRate);
+        Complex<double> jw = std::exp (-MathConstants<double>::twoPi * frequencies[i] * j * invSampleRate);
 
         for (size_t n = 0; n <= order; ++n)
         {
@@ -482,3 +476,6 @@ void IIR::Coefficients<NumericType>::getPhaseForFrequencyArray (double* frequenc
 
 template struct IIR::Coefficients<float>;
 template struct IIR::Coefficients<double>;
+
+} // namespace dsp
+} // namespace juce

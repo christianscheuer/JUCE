@@ -20,11 +20,15 @@
   ==============================================================================
 */
 
+namespace juce
+{
 
 /**
     This topology source manages the topology of the physical Blocks devices
     that are currently connected. It maintains a list of them and tells
     listeners when physical devices are added or removed.
+
+    @tags{Blocks}
 */
 class PhysicalTopologySource  : public TopologySource
 {
@@ -76,7 +80,9 @@ private:
     //==========================================================================
     struct Internal;
     struct DetectorHolder;
-    juce::ScopedPointer<DetectorHolder> detector;
+    std::unique_ptr<DetectorHolder> detector;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhysicalTopologySource)
 };
+
+} // namespace juce

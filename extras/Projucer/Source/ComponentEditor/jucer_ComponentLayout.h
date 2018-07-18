@@ -26,10 +26,8 @@
 
 #pragma once
 
-
-#include "components/jucer_ComponentTypeHandler.h"
+#include "Components/jucer_ComponentTypeHandler.h"
 class JucerDocument;
-
 
 //==============================================================================
 /**
@@ -65,6 +63,7 @@ public:
     void componentToBack (Component* comp, const bool undoable);
 
     void setComponentPosition (Component* comp, const RelativePositionedRectangle& newPos, const bool undoable);
+    void setComponentBoundsAndProperties (Component* comp, const Rectangle<int>& newBounds, Component* referenceComponent, const bool undoable);
     void updateStoredComponentPosition (Component* comp, const bool undoable);
 
     //==============================================================================
@@ -95,6 +94,11 @@ public:
 
     void selectedToFront();
     void selectedToBack();
+
+    void alignTop();
+    void alignRight();
+    void alignBottom();
+    void alignLeft();
 
     void startDragging();
     void dragSelectedComps (int dxFromDragStart, int dyFromDragStart, const bool allowSnap = true);

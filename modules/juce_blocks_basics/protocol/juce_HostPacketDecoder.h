@@ -20,10 +20,16 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace BlocksProtocol
+{
 
 /**
     Parses data packets from a BLOCKS device, and translates them into callbacks
     on a handler object
+
+    @tags{Blocks}
 */
 template <typename Handler>
 struct HostPacketDecoder
@@ -352,3 +358,6 @@ struct HostPacketDecoder
         return true;
     }
 };
+
+} // namespace BlocksProtocol
+} // namespace juce

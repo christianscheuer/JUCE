@@ -20,27 +20,35 @@
   ==============================================================================
 */
 
-#pragma once
-
+namespace juce
+{
 
 //==============================================================================
 /**
     A simple class to generate hash functions for some primitive types, intended for
     use with the HashMap class.
     @see HashMap
+
+    @tags{Core}
 */
 struct DefaultHashFunctions
 {
+    /** Generates a simple hash from an unsigned int. */
+    static int generateHash (uint32 key, int upperLimit) noexcept           { return (int) (key % (uint32) upperLimit); }
     /** Generates a simple hash from an integer. */
-    int generateHash (const int key, const int upperLimit) const noexcept        { return std::abs (key) % upperLimit; }
+    static int generateHash (int32 key, int upperLimit) noexcept            { return generateHash ((uint32) key, upperLimit); }
+    /** Generates a simple hash from a uint64. */
+    static int generateHash (uint64 key, int upperLimit) noexcept           { return (int) (key % (uint64) upperLimit); }
     /** Generates a simple hash from an int64. */
-    int generateHash (const int64 key, const int upperLimit) const noexcept      { return std::abs ((int) key) % upperLimit; }
+    static int generateHash (int64 key, int upperLimit) noexcept            { return generateHash ((uint64) key, upperLimit); }
     /** Generates a simple hash from a string. */
-    int generateHash (const String& key, const int upperLimit) const noexcept    { return (int) (((uint32) key.hashCode()) % (uint32) upperLimit); }
+    static int generateHash (const String& key, int upperLimit) noexcept    { return generateHash ((uint32) key.hashCode(), upperLimit); }
     /** Generates a simple hash from a variant. */
-    int generateHash (const var& key, const int upperLimit) const noexcept       { return generateHash (key.toString(), upperLimit); }
+    static int generateHash (const var& key, int upperLimit) noexcept       { return generateHash (key.toString(), upperLimit); }
     /** Generates a simple hash from a void ptr. */
-    int generateHash (const void* key, const int upperLimit) const noexcept      { return (int)(((pointer_sized_uint) key) % ((pointer_sized_uint) upperLimit)); }
+    static int generateHash (const void* key, int upperLimit) noexcept      { return generateHash ((uint64) (pointer_sized_uint) key, upperLimit); }
+    /** Generates a simple hash from a UUID. */
+    static int generateHash (const Uuid& key, int upperLimit) noexcept      { return generateHash (key.hash(), upperLimit); }
 };
 
 
@@ -85,6 +93,8 @@ struct DefaultHashFunctions
 
     @tparam HashFunctionType The class of hash function, which must be copy-constructible.
     @see CriticalSection, DefaultHashFunctions, NamedValueSet, SortedSet
+
+    @tags{Core}
 */
 template <typename KeyType,
           typename ValueType,
@@ -93,8 +103,8 @@ template <typename KeyType,
 class HashMap
 {
 private:
-    typedef typename TypeHelpers::ParameterType<KeyType>::type   KeyTypeParameter;
-    typedef typename TypeHelpers::ParameterType<ValueType>::type ValueTypeParameter;
+    using KeyTypeParameter   = typename TypeHelpers::ParameterType<KeyType>::type;
+    using ValueTypeParameter = typename TypeHelpers::ParameterType<ValueType>::type;
 
 public:
     //==============================================================================
@@ -136,7 +146,7 @@ public:
 
             while (h != nullptr)
             {
-                const ScopedPointer<HashEntry> deleter (h);
+                const std::unique_ptr<HashEntry> deleter (h);
                 h = h->nextEntry;
             }
 
@@ -233,7 +243,7 @@ public:
         {
             if (entry->key == keyToRemove)
             {
-                const ScopedPointer<HashEntry> deleter (entry);
+                const std::unique_ptr<HashEntry> deleter (entry);
 
                 entry = entry->nextEntry;
 
@@ -266,7 +276,7 @@ public:
             {
                 if (entry->value == valueToRemove)
                 {
-                    const ScopedPointer<HashEntry> deleter (entry);
+                    const std::unique_ptr<HashEntry> deleter (entry);
 
                     entry = entry->nextEntry;
 
@@ -451,7 +461,7 @@ public:
         int index;
 
         // using the copy constructor is ok, but you cannot assign iterators
-        Iterator& operator= (const Iterator&) JUCE_DELETED_FUNCTION;
+        Iterator& operator= (const Iterator&) = delete;
 
         JUCE_LEAK_DETECTOR (Iterator)
     };
@@ -492,3 +502,5 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HashMap)
 };
+
+} // namespace juce

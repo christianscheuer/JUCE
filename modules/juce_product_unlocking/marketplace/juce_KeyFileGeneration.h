@@ -24,9 +24,14 @@
   ==============================================================================
 */
 
+namespace juce
+{
+
 /**
     Contains static utilities for generating key-files that can be unlocked by
     the OnlineUnlockStatus class.
+
+    @tags{ProductUnlocking}
 */
 class JUCE_API  KeyGeneration
 {
@@ -107,3 +112,5 @@ public:
         return 0;
     }
 };
+
+} // namespace juce

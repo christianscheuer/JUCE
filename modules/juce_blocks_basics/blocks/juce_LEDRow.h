@@ -20,9 +20,13 @@
   ==============================================================================
 */
 
+namespace juce
+{
 
 /**
     Represents an LED strip on a device.
+
+    @tags{Blocks}
 */
 class LEDRow
 {
@@ -56,3 +60,5 @@ public:
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LEDRow)
 };
+
+} // namespace juce

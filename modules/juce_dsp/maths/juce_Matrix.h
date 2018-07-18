@@ -24,11 +24,18 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
+
 /**
     General matrix and vectors class, meant for classic math manipulation such as
     additions, multiplications, and linear systems of equations solving.
 
     @see LinearAlgebra
+
+    @tags{DSP}
 */
 template<typename ElementType>
 class Matrix
@@ -91,7 +98,7 @@ public:
     /** Returns an Array of 2 integers with the number of rows and columns in the
         matrix.
     */
-    Array<size_t> getSize() const noexcept             { return {{ rows, columns }}; }
+    Array<size_t> getSize() const noexcept             { return { rows, columns }; }
 
     /** Fills the contents of the matrix with zeroes. */
     void clear() noexcept                              { zeromem (data.begin(), sizeof (ElementType) * (size_t) data.size()); }
@@ -130,15 +137,15 @@ public:
 
     //==============================================================================
     /** Addition of two matrices */
-    inline Matrix& operator+= (const Matrix& other) noexcept            { return apply (other, std::plus<ElementType>()); }
+    inline Matrix& operator+= (const Matrix& other) noexcept            { return apply (other, [] (ElementType a, ElementType b) { return a + b; } ); }
 
     /** Subtraction of two matrices */
-    inline Matrix& operator-= (const Matrix& other) noexcept            { return apply (other, std::minus<ElementType>()); }
+    inline Matrix& operator-= (const Matrix& other) noexcept            { return apply (other, [] (ElementType a, ElementType b) { return a - b; } ); }
 
     /** Scalar multiplication */
     inline Matrix& operator*= (ElementType scalar) noexcept
     {
-        std::for_each (begin(), end(), [scalar] (ElementType& x) { x*= scalar; });
+        std::for_each (begin(), end(), [scalar] (ElementType& x) { x *= scalar; });
         return *this;
     }
 
@@ -155,7 +162,7 @@ public:
     Matrix operator* (const Matrix& other) const;
 
     /** Does a hadarmard product with the receiver and other and stores the result in the receiver */
-    inline Matrix& hadarmard (const Matrix& other) noexcept             { return apply (other, std::multiplies<ElementType>()); }
+    inline Matrix& hadarmard (const Matrix& other) noexcept             { return apply (other, [] (ElementType a, ElementType b) { return a * b; } ); }
 
     /** Does a hadarmard product with a and b returns the result. */
     static inline Matrix hadarmard (const Matrix& a, const Matrix& b)   { Matrix result (a); result.hadarmard (b); return result; }
@@ -243,3 +250,6 @@ private:
     //==============================================================================
     JUCE_LEAK_DETECTOR (Matrix)
 };
+
+} // namespace dsp
+} // namespace juce

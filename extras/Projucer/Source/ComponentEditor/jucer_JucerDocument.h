@@ -26,9 +26,9 @@
 
 #pragma once
 
-#include "../Application/jucer_OpenDocumentManager.h"
-#include "../Code Editor/jucer_SourceCodeEditor.h"
-#include "components/jucer_ComponentTypeHandler.h"
+#include "../CodeEditor/jucer_OpenDocumentManager.h"
+#include "../CodeEditor/jucer_SourceCodeEditor.h"
+#include "Components/jucer_ComponentTypeHandler.h"
 #include "jucer_PaintRoutine.h"
 #include "jucer_ComponentLayout.h"
 #include "jucer_BinaryResources.h"
@@ -36,8 +36,7 @@
 //==============================================================================
 class JucerDocument  : public ChangeBroadcaster,
                        private Timer,
-                       private CodeDocument::Listener,
-                       private OpenDocumentManager::DocumentCloseListener
+                       private CodeDocument::Listener
 {
 public:
     JucerDocument (SourceCodeDocument* cpp);
@@ -169,14 +168,13 @@ private:
     bool snapActive = true, snapShown = true;
     float componentOverlayOpacity = 0.33f;
     StringArray activeExtraMethods;
-    ScopedPointer<XmlElement> currentXML;
-    ScopedPointer<Timer> userDocChangeTimer;
+    std::unique_ptr<XmlElement> currentXML;
+    std::unique_ptr<Timer> userDocChangeTimer;
 
     void timerCallback() override;
     void codeDocumentTextInserted (const String& newText, int insertIndex) override;
     void codeDocumentTextDeleted (int startIndex, int endIndex) override;
     void userEditedCpp();
-    bool documentAboutToClose (OpenDocumentManager::Document*) override;
     void extractCustomPaintSnippetsFromCppFile (const String& cpp);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (JucerDocument)

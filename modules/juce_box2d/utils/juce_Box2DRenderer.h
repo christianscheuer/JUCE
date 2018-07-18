@@ -24,13 +24,16 @@
   ==============================================================================
 */
 
-#pragma once
+namespace juce
+{
 
 //==============================================================================
 /** A simple implementation of the b2Draw class, used to draw a Box2D world.
 
     To use it, simply create an instance of this class in your paint() method,
     and call its render() method.
+
+    @tags{Box2D}
 */
 class Box2DRenderer   : public b2Draw
 
@@ -73,3 +76,5 @@ protected:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Box2DRenderer)
 };
+
+} // namespace juce

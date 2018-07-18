@@ -24,6 +24,10 @@
   ==============================================================================
 */
 
+#pragma once
+
+
+//==============================================================================
 struct DynamicLibraryWizard   : public NewProjectWizard
 {
     DynamicLibraryWizard()  {}
@@ -35,7 +39,7 @@ struct DynamicLibraryWizard   : public NewProjectWizard
     bool initialiseProject (Project& project) override
     {
         createSourceFolder();
-        project.getProjectTypeValue() = ProjectType_DLL::getTypeName();
+        project.setProjectType (ProjectType_DLL::getTypeName());
         createSourceGroup (project);
         setExecutableNameForAllTargets (project, File::createLegalFileName (appTitle));
 

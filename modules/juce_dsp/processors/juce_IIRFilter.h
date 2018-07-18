@@ -24,6 +24,10 @@
   ==============================================================================
 */
 
+namespace juce
+{
+namespace dsp
+{
 
 /**
     Classes for IIR filter processing.
@@ -43,6 +47,8 @@ namespace IIR
         class Filter.
 
         @see Filter::Coefficients, FilterAudioSource, StateVariableFilter
+
+        @tags{DSP}
     */
     template <typename SampleType>
     class Filter
@@ -65,11 +71,10 @@ namespace IIR
         /** Creates a filter with a given set of coefficients. */
         Filter (Coefficients<NumericType>* coefficientsToUse);
 
-        /** Creates a copy of another filter. */
         Filter (const Filter&) = default;
-
-        /** Move constructor. */
         Filter (Filter&&) = default;
+        Filter& operator= (const Filter&) = default;
+        Filter& operator= (Filter&&) = default;
 
         //==============================================================================
         /** The coefficients of the IIR filter. It's up to the called to ensure that
@@ -89,8 +94,7 @@ namespace IIR
         void reset()            { reset (SampleType {0}); }
 
         /** Resets the filter's processing pipeline to a specific value.
-
-            See @reset
+            @see reset
         */
         void reset (SampleType resetToValue);
 
@@ -100,7 +104,13 @@ namespace IIR
 
         /** Processes as a block of samples */
         template <typename ProcessContext>
-        void process (const ProcessContext& context) noexcept;
+        void process (const ProcessContext& context) noexcept
+        {
+            if (context.isBypassed)
+                processInternal<ProcessContext, true> (context);
+            else
+                processInternal<ProcessContext, false> (context);
+        }
 
         /** Processes a single sample, without any locking.
 
@@ -111,10 +121,19 @@ namespace IIR
         */
         SampleType JUCE_VECTOR_CALLTYPE processSample (SampleType sample) noexcept;
 
+        /** Ensure that the state variables are rounded to zero if the state
+            variables are denormals. This is only needed if you are doing
+            sample by sample processing.
+        */
+        void snapToZero() noexcept;
+
     private:
         //==============================================================================
-        void snapToZero() noexcept;
         void check();
+
+        /** Processes as a block of samples */
+        template <typename ProcessContext, bool isBypassed>
+        void processInternal (const ProcessContext& context) noexcept;
 
         //==============================================================================
         HeapBlock<SampleType> memory;
@@ -128,6 +147,8 @@ namespace IIR
     //==============================================================================
     /** A set of coefficients for use in an Filter object.
         @see IIR::Filter
+
+        @tags{DSP}
     */
     template <typename NumericType>
     struct Coefficients  : public ProcessorState
@@ -145,14 +166,13 @@ namespace IIR
         Coefficients (NumericType b0, NumericType b1, NumericType b2,
                       NumericType a0, NumericType a1, NumericType a2);
 
-        Coefficients (NumericType b0, NumericType, NumericType b2, NumericType b3,
+        Coefficients (NumericType b0, NumericType b1, NumericType b2, NumericType b3,
                       NumericType a0, NumericType a1, NumericType a2, NumericType a3);
 
-        /** Creates a copy of another filter. */
-        Coefficients (const Coefficients&);
-
-        /** Creates a copy of another filter. */
-        Coefficients& operator= (const Coefficients&);
+        Coefficients (const Coefficients&) = default;
+        Coefficients (Coefficients&&) = default;
+        Coefficients& operator= (const Coefficients&) = default;
+        Coefficients& operator= (Coefficients&&) = default;
 
         /** The Coefficients structure is ref-counted, so this is a handy type that can be used
             as a pointer to one.
@@ -276,5 +296,8 @@ namespace IIR
         static constexpr NumericType inverseRootTwo = static_cast<NumericType> (0.70710678118654752440L);
     };
 
-    #include "juce_IIRFilter_Impl.h"
-}
+} // namespace IIR
+} // namespace dsp
+} // namespace juce
+
+#include "juce_IIRFilter_Impl.h"

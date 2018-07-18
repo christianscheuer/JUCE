@@ -24,26 +24,14 @@
   ==============================================================================
 */
 
-#ifndef DOXYGEN
-
-template <typename Type>
-struct SnapToZeroHelper
+namespace juce
 {
-    static void snap (Type& x) noexcept
-    {
-        for (size_t i = 0; i < Type::size(); ++i)
-            JUCE_SNAP_TO_ZERO (x[i]);
-    }
-};
+namespace dsp
+{
+namespace IIR
+{
 
-template <> struct SnapToZeroHelper<float>       { static void snap (float& x)       noexcept { JUCE_SNAP_TO_ZERO (x); } };
-template <> struct SnapToZeroHelper<double>      { static void snap (double& x)      noexcept { JUCE_SNAP_TO_ZERO (x); } };
-template <> struct SnapToZeroHelper<long double> { static void snap (long double& x) noexcept { JUCE_SNAP_TO_ZERO (x); } };
-
-#if JUCE_USE_SIMD
-template <typename Type>
-struct SnapToZeroHelper<SIMDRegister<Type>>      { static void snap (SIMDRegister<Type>&) noexcept {} };
-#endif
+#ifndef DOXYGEN
 
 //==============================================================================
 template <typename SampleType>
@@ -81,8 +69,8 @@ void Filter<SampleType>::prepare (const ProcessSpec&) noexcept     { reset(); }
 
 
 template <typename SampleType>
-template <typename ProcessContext>
-void Filter<SampleType>::process (const ProcessContext& context) noexcept
+template <typename ProcessContext, bool bypassed>
+void Filter<SampleType>::processInternal (const ProcessContext& context) noexcept
 {
     static_assert (std::is_same<typename ProcessContext::SampleType, SampleType>::value,
                    "The sample-type of the IIR filter must match the sample-type supplied to this process callback");
@@ -101,6 +89,11 @@ void Filter<SampleType>::process (const ProcessContext& context) noexcept
     auto* dst = outputBlock.getChannelPointer (0);
     auto* coeffs = coefficients->getRawCoefficients();
 
+    // we need to copy this template parameter into a constexpr
+    // otherwise MSVC will moan that the tenary expressions below
+    // are constant conditional expressions
+    constexpr bool isBypassed = bypassed;
+
     switch (order)
     {
         case 1:
@@ -115,12 +108,13 @@ void Filter<SampleType>::process (const ProcessContext& context) noexcept
             {
                 auto in = src[i];
                 auto out = in * b0 + lv1;
-                dst[i] = out;
+
+                dst[i] = isBypassed ? in : out;
 
                 lv1 = (in * b1) - (out * a1);
             }
 
-            SnapToZeroHelper<SampleType>::snap (lv1); state[0] = lv1;
+            util::snapToZero (lv1); state[0] = lv1;
         }
         break;
 
@@ -139,14 +133,14 @@ void Filter<SampleType>::process (const ProcessContext& context) noexcept
             {
                 auto in = src[i];
                 auto out = (in * b0) + lv1;
-                dst[i] = out;
+                dst[i] = isBypassed ? in : out;
 
                 lv1 = (in * b1) - (out * a1) + lv2;
                 lv2 = (in * b2) - (out * a2);
             }
 
-            SnapToZeroHelper<SampleType>::snap (lv1); state[0] = lv1;
-            SnapToZeroHelper<SampleType>::snap (lv2); state[1] = lv2;
+            util::snapToZero (lv1); state[0] = lv1;
+            util::snapToZero (lv2); state[1] = lv2;
         }
         break;
 
@@ -168,16 +162,16 @@ void Filter<SampleType>::process (const ProcessContext& context) noexcept
             {
                 auto in = src[i];
                 auto out = (in * b0) + lv1;
-                dst[i] = out;
+                dst[i] = isBypassed ? in : out;
 
                 lv1 = (in * b1) - (out * a1) + lv2;
                 lv2 = (in * b2) - (out * a2) + lv3;
                 lv3 = (in * b3) - (out * a3);
             }
 
-            SnapToZeroHelper<SampleType>::snap (lv1); state[0] = lv1;
-            SnapToZeroHelper<SampleType>::snap (lv2); state[1] = lv2;
-            SnapToZeroHelper<SampleType>::snap (lv3); state[2] = lv3;
+            util::snapToZero (lv1); state[0] = lv1;
+            util::snapToZero (lv2); state[1] = lv2;
+            util::snapToZero (lv3); state[2] = lv3;
         }
         break;
 
@@ -187,7 +181,7 @@ void Filter<SampleType>::process (const ProcessContext& context) noexcept
             {
                 auto in = src[i];
                 auto out = (in * coeffs[0]) + state[0];
-                dst[i] = out;
+                dst[i] = isBypassed ? in : out;
 
                 for (size_t j = 0; j < order - 1; ++j)
                     state[j] = (in * coeffs[j + 1]) - (out * coeffs[order + j + 1]) + state[j + 1];
@@ -220,7 +214,7 @@ template <typename SampleType>
 void Filter<SampleType>::snapToZero() noexcept
 {
     for (size_t i = 0; i < order; ++i)
-        SnapToZeroHelper<SampleType>::snap (state[i]);
+        util::snapToZero (state[i]);
 }
 
 template <typename SampleType>
@@ -233,3 +227,7 @@ void Filter<SampleType>::check()
 }
 
 #endif
+
+} // namespace IIR
+} // namespace dsp
+} // namespace juce
